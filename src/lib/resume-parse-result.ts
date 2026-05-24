@@ -1,0 +1,46 @@
+/**
+ * Canonical shape for `ResumeParseJob.resultJson` after a successful parse.
+ * Workers should write only this structure (or a documented superset) for consistent UI and APIs.
+ */
+export type ResumeParseExperience = {
+  /** Total or relevant years of experience as a single number for filtering/matching. */
+  years: number;
+  /** Free-text summary (e.g. roles, industries) for display and search. */
+  summary: string;
+};
+
+/**
+ * Parsed résumé payload stored in the database as JSON (`resultJson`).
+ *
+ * @example
+ * ```json
+ * {
+ *   "name": "Jane Doe",
+ *   "skills": ["TypeScript", "PostgreSQL"],
+ *   "experience": { "years": 8, "summary": "Senior backend engineer; fintech." }
+ * }
+ * ```
+ */
+export type ResumeParseResult = {
+  name: string;
+  skills: string[];
+  experience: ResumeParseExperience;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Narrow unknown JSON from Prisma to `ResumeParseResult` when reading `resultJson`. */
+export function isResumeParseResult(value: unknown): value is ResumeParseResult {
+  if (!isRecord(value)) return false;
+  if (typeof value.name !== "string") return false;
+  if (!Array.isArray(value.skills) || !value.skills.every((s) => typeof s === "string")) {
+    return false;
+  }
+  if (!isRecord(value.experience)) return false;
+  const exp = value.experience;
+  if (typeof exp.years !== "number" || !Number.isFinite(exp.years)) return false;
+  if (typeof exp.summary !== "string") return false;
+  return true;
+}

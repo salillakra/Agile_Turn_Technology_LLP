@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/process-parse-jobs?limit=10",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

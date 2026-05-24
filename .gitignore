@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Environment (secrets)
+.env
+.env.local
+.env.*.local
+
+# Prisma generated client (regenerate via `npm run prisma:generate`)
+/generated/prisma
+
+# TypeScript incremental build
+tsconfig.tsbuildinfo
+
+# Debug / OS
+npm-debug.log*
+.DS_Store
+
+# Local uploads (keep directory structure via .gitkeep)
+uploads/resumes/*
+!uploads/resumes/.gitkeep
+uploads/profile-media/*
+!uploads/profile-media/.gitkeep

@@ -1,0 +1,449 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Application role for authorization (e.g. dashboard access, CRUD permissions).
+enum Role {
+  ADMIN
+  RECRUITER
+  HIRING_MANAGER
+}
+
+// Lifecycle of an open position: OPEN (accepting applications), PAUSED (on hold), CLOSED (filled or cancelled).
+enum JobStatus {
+  OPEN
+  PAUSED
+  CLOSED
+}
+
+// Pipeline stage for a candidate's application to a job.
+enum ApplicationStage {
+  APPLIED
+  SCREENING
+  INTERVIEW
+  TECHNICAL
+  FINAL_ROUND
+  OFFER_SENT
+  HIRED
+  REJECTED
+}
+
+// Where the candidate was sourced from; used for funnel and channel analytics.
+enum CandidateSource {
+  LINKEDIN
+  INDEED
+  REFERRAL
+  COMPANY_WEBSITE
+  GLASSDOOR
+  HEADHUNTER
+  OTHER
+}
+
+// Async résumé parsing pipeline: enqueue after upload; worker fills resultJson or error.
+enum ResumeParseJobStatus {
+  PENDING
+  DONE
+  FAILED
+}
+
+// In-app notification category; used for filtering, analytics, and client routing.
+enum NotificationType {
+  CANDIDATE_CREATED
+  APPLICATION_CREATED
+  STAGE_CHANGED
+  INTERVIEW_SCHEDULED
+  OFFER_SENT
+}
+
+// Urgency for UI sorting, badges, and digest rules (API may expose lowercase strings).
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+// What `reference_id` points to for in-app navigation (e.g. `/applicants?applicationId=` vs `?candidateId=`).
+enum NotificationReferenceType {
+  APPLICATION
+  CANDIDATE
+}
+
+// Core identity: credentials (email/password) and app role. Required so NextAuth and the app
+// have a single place for who is logged in and what they are allowed to do.
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified DateTime? @map("email_verified")
+  image         String?
+  password      String
+  passwordResetToken   String?   @unique @map("password_reset_token")
+  passwordResetExpires DateTime? @map("password_reset_expires")
+  role          Role      @default(RECRUITER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  accounts        Account[]
+  sessions        Session[]
+  notes           Note[]
+  candidateNotes  CandidateNote[]
+  activityLogs    ActivityLog[]
+  createdJobs     Job[]
+  assignedJobLinks JobAssignment[]
+  reportExportLogs ReportExportLog[]
+  notifications    Notification[]
+  /// Extended fields editable by the user (phone, bio, etc.). Created at registration or on first profile access.
+  profile          UserProfile?
+
+  @@map("users")
+}
+
+/// Per-user profile data (separate from auth core on `User`). One row per user after registration or lazy-created on first profile API access.
+model UserProfile {
+  userId      String    @id @map("user_id")
+  phone       String?
+  /// Optional contact email (not used for sign-in); `User.email` remains the login identity.
+  personalEmail String? @map("personal_email")
+  jobTitle    String?   @map("job_title")
+  department  String?
+  location    String?
+  bio         String?   @db.Text
+  timezone    String?
+  /// Recruiter / hiring manager employer (staff profile).
+  companyName String?   @map("company_name")
+  /// List of skill strings (JSON array), used for non-admin roles.
+  skills      Json?
+  experience  String?   @db.Text
+  education   String?   @db.Text
+  linkedInUrl String?   @map("linkedin_url")
+  githubUrl   String?   @map("github_url")
+  portfolioUrl String?  @map("portfolio_url")
+  /// Local avatar blob file name under profile media dir (served via `/api/profile/media/...`).
+  avatarFileName String? @map("avatar_file_name")
+  /// Arbitrary preferences (e.g. digest toggles) as JSON.
+  preferences Json?     @map("preferences")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+// In-app alerts for a user (e.g. stage changes, parse complete). Persisted for cross-session and multi-device delivery.
+model Notification {
+  id              String                    @id @default(cuid())
+  userId          String                    @map("user_id")
+  type            NotificationType
+  title           String
+  message         String                    @db.Text
+  priority        NotificationPriority?     // null = legacy rows or unspecified
+  referenceId     String?                   @map("reference_id") // applicationId or candidateId
+  referenceType   NotificationReferenceType? @map("reference_type")
+  isRead          Boolean                   @default(false) @map("is_read")
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  user            User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, isRead])
+  @@index([userId, priority])
+  @@index([referenceType, referenceId])
+  @@map("notifications")
+}
+
+// Links a User to an OAuth/OpenID provider (Google, GitHub, etc.). Required for OAuth sign-in:
+// NextAuth stores provider id and tokens here so it can refresh access and identify the user.
+model Account {
+  id                String  @id @default(cuid())
+  userId            String  @map("user_id")
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope              String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+// Server-side session record. Required so NextAuth can validate the session cookie (sessionToken)
+// and load the user; expires supports secure session expiry.
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id")
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// One-time tokens for email verification or magic-link sign-in. Required so NextAuth can
+// verify ownership of an email (e.g. sign-in link or verification link) and then invalidate the token.
+model VerificationToken {
+  identifier String
+  token      String
+  expires   DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// Open position in the recruitment system.
+// Field rationale: id — unique reference; title — role name; department — team/org; location — where (remote/office);
+// yearsOfExperience — filter/match candidates; description — full JD; additionalComments — internal notes;
+// status — OPEN/PAUSED/CLOSED for pipeline; createdAt — audit; createdBy — ownership and audit.
+model Job {
+  id                   String        @id @default(cuid())
+  title                String
+  department           String
+  location             String
+  yearsOfExperience    Int?          @map("years_of_experience")
+  description          String?       @db.Text
+  additionalComments   String?       @map("additional_comments") @db.Text
+  jobMeta              Json?         @map("job_meta")
+  status               JobStatus    @default(OPEN)
+  createdAt            DateTime     @default(now()) @map("created_at")
+  createdBy            String        @map("created_by")
+  creator              User          @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  applications         Application[]
+  assignments          JobAssignment[]
+
+  @@map("jobs")
+}
+
+// Explicit assignment of a hiring manager user to a job.
+// Used for HIRING_MANAGER-scoped report visibility.
+model JobAssignment {
+  id          String   @id @default(cuid())
+  jobId       String   @map("job_id")
+  userId      String   @map("user_id")
+  assignedAt  DateTime @default(now()) @map("assigned_at")
+  assignedBy  String?  @map("assigned_by")
+  job         Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, userId])
+  @@index([userId])
+  @@index([jobId])
+  @@map("job_assignments")
+}
+
+// Audit trail when a user downloads a report export (CSV/XLSX/PDF). Supports compliance and incident review.
+model ReportExportLog {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  role        String
+  format      String
+  exportType  String   @map("export_type")
+  reportRange String   @map("report_range")
+  jobId       String?  @map("job_id")
+  department  String?
+  rowCount    Int      @map("row_count")
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("report_export_logs")
+}
+
+// Person in the talent pool; stores full profile for sourcing, screening, and offer tracking.
+// Field purposes in an ATS:
+//   id — unique reference.
+//   candidateName, email, contactNumber — identity and contact.
+//   vendor — agency/third party that supplied the candidate (vendor management).
+//   date — sourcing or profile-creation date for reporting.
+//   positionRole — target or applied role for matching.
+//   totalExperience, relevantExperience — filter and match to job requirements (years).
+//   currentDesignation, currentCompany — current employment context.
+//   preferredWorkLocation — location fit vs job.
+//   noticePeriod, lastWorkingDay — join timeline and capacity planning.
+//   offerInHand — urgency and negotiation context.
+//   pan — tax ID for compliance (e.g. India PAN).
+//   dob — age/eligibility if needed.
+//   currentCTC, expectedCTC — compensation band and offer alignment.
+//   resumeUrl — URL/key to where the resume file is stored (object storage or CDN path); not the raw file.
+//   resumeFileName — original upload file name for display/download (e.g. "Jane_Doe_CV.pdf").
+//   candidateSource — channel attribution (LINKEDIN, REFERRAL, etc.) for funnel analytics.
+//   rating — overall or default fit score.
+//   createdAt, updatedAt — audit.
+// Relations: applications (per-job pipeline), notes (internal comments), candidateSkills (skills list), candidateTags, activityLogs.
+model Candidate {
+  id                    String            @id @default(cuid())
+  candidateName         String            @map("candidate_name")
+  email                 String
+  contactNumber         String?           @map("contact_number")
+  vendor                String?
+  date                  DateTime?         @map("date")
+  positionRole          String?           @map("position_role")
+  totalExperience       Int?             @map("total_experience")
+  relevantExperience    Int?             @map("relevant_experience")
+  currentDesignation   String?           @map("current_designation")
+  currentCompany       String?           @map("current_company")
+  preferredWorkLocation String?           @map("preferred_work_location")
+  noticePeriod         String?           @map("notice_period")
+  lastWorkingDay       DateTime?         @map("last_working_day")
+  offerInHand          Boolean?          @map("offer_in_hand")
+  pan                  String?
+  dob                  DateTime?         @map("dob")
+  currentCTC           Decimal?          @map("current_ctc") @db.Decimal(12, 2)
+  expectedCTC          Decimal?          @map("expected_ctc") @db.Decimal(12, 2)
+  resumeUrl            String?           @map("resume_url")
+  resumeFileName       String?           @map("resume_file_name")
+  candidateSource      CandidateSource?  @map("candidate_source")
+  rating               Int?
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt
+  applications         Application[]
+  notes                Note[]
+  candidateNotes       CandidateNote[]
+  candidateTags        CandidateTag[]
+  candidateSkills      CandidateSkill[]
+  activityLogs         ActivityLog[]
+  resumeParseJobs      ResumeParseJob[]
+
+  @@map("candidates")
+}
+
+// Tracks background work to parse an uploaded résumé into structured fields (e.g. skills, experience).
+model ResumeParseJob {
+  id          String               @id @default(cuid())
+  candidateId String               @map("candidate_id")
+  status      ResumeParseJobStatus @default(PENDING)
+  fileHash    String               @map("file_hash")
+  /// Parsed payload: see `ResumeParseResult` in `src/lib/resume-parse-result.ts` (name, skills, experience).
+  resultJson  Json?                @map("result_json")
+  error       String?              @db.Text
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+  candidate   Candidate            @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId])
+  @@index([status])
+  @@map("resume_parse_jobs")
+}
+
+// Links a candidate to a job in the recruitment pipeline; one row per candidate–job pair.
+// Analytics/dashboard code treats all Application DateTime fields as UTC instants; use frontend for business-timezone display only.
+model Application {
+  id             String            @id @default(cuid())
+  candidateId    String            @map("candidate_id")
+  jobId          String            @map("job_id")
+  stage             ApplicationStage  @default(APPLIED)
+  rating            Int?
+  interviewDate     DateTime?         @map("interview_date")
+  feedback          String?           @db.Text
+  rejectionReason   String?           @map("rejection_reason") @db.Text
+  source            String?
+  notes             String?
+  appliedDate       DateTime          @default(now()) @map("applied_date")
+  lastActivity      DateTime          @updatedAt @map("last_activity")
+  offerSentAt       DateTime?         @map("offer_sent_at")
+  hiredAt           DateTime?         @map("hired_at")
+  withdrawnAt       DateTime?         @map("withdrawn_at")
+  withdrawnReason   String?           @map("withdrawn_reason") @db.Text
+  version           Int               @default(0)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  candidate         Candidate        @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job               Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  activityLogs      ActivityLog[]
+
+  @@index([candidateId])
+  @@index([jobId])
+  @@index([stage])
+  @@index([appliedDate])
+  @@index([jobId, stage])
+  @@index([withdrawnAt])
+  @@unique([candidateId, jobId])
+  @@map("applications")
+}
+
+model Tag {
+  id            String         @id @default(cuid())
+  name          String         @unique
+  createdAt     DateTime       @default(now())
+  candidateTags CandidateTag[]
+
+  @@map("tags")
+}
+
+model CandidateTag {
+  id         String    @id @default(cuid())
+  candidateId String   @map("candidate_id")
+  tagId      String   @map("tag_id")
+  createdAt  DateTime @default(now())
+  candidate  Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  tag        Tag       @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([candidateId, tagId])
+  @@map("candidate_tags")
+}
+
+// Tags a candidate with a skill; supports search and filtering by skill.
+model CandidateSkill {
+  id          String    @id @default(cuid())
+  candidateId String    @map("candidate_id")
+  skillName   String    @map("skill_name") @db.VarChar(200)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@map("candidate_skills")
+}
+
+// Internal recruiter feedback on a candidate; supports collaboration and handoff.
+model CandidateNote {
+  id          String    @id @default(cuid())
+  candidateId String    @map("candidate_id")
+  note        String    @db.Text
+  createdBy   String    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  author      User      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@map("candidate_notes")
+}
+
+model Note {
+  id         String   @id @default(cuid())
+  candidateId String  @map("candidate_id")
+  authorId   String   @map("author_id")
+  content    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  candidate  Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  author     User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("notes")
+}
+
+// action examples: APPLICATION_CREATED, STAGE_CHANGE, FEEDBACK_ADDED, NOTES_UPDATED,
+// APPLICATION_DELETED, RESUME_PARSE_STARTED, RESUME_PARSE_COMPLETED, RESUME_PARSE_FAILED,
+// RESUME_PARSE_APPLIED_TO_CANDIDATE, NOTIFICATION_SENT (e.g. in-app STAGE_CHANGED alerts to stakeholders).
+model ActivityLog {
+  id            String   @id @default(cuid())
+  applicationId String?  @map("application_id")
+  candidateId   String?  @map("candidate_id")
+  userId        String?  @map("user_id")
+  action        String
+  details       String?
+  createdAt     DateTime @default(now())
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  candidate     Candidate?   @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  user          User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([applicationId])
+  @@index([applicationId, createdAt])
+  @@index([createdAt])
+  @@map("activity_logs")
+}

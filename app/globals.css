@@ -1,0 +1,207 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,700;0,9..144,800&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500;700&display=swap");
+@import "tailwindcss";
+
+/* Class-based dark mode for next-themes (adds .dark on <html>) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+* {
+  box-sizing: border-box;
+}
+
+/* Light theme (default when <html> has no .dark) — darker text for readability */
+:root {
+  --app-bg: #f8fafc;
+  --app-surface: #ffffff;
+  --app-card: #f1f5f9;
+  --app-border: rgba(15, 23, 42, 0.1);
+  --app-border-strong: rgba(15, 23, 42, 0.16);
+  --text-heading: #020617;
+  --text-heading-soft: #0f172a;
+  --text-body: #1e293b;
+  --text-muted: #475569;
+  --text-mono: #334155;
+  --accent: #2563eb;
+  --accent-glow: rgba(59, 130, 246, 0.2);
+  --input-bg: #ffffff;
+  --input-border: rgba(15, 23, 42, 0.18);
+  --nav-inactive: #475569;
+  --nav-active: #1d4ed8;
+  --overlay-scrim: rgba(15, 23, 42, 0.45);
+  /* Subtle fills (cards, chart hole) — not white in light mode */
+  --chrome-muted-bg: rgba(15, 23, 42, 0.06);
+  --funnel-track-bg: rgba(15, 23, 42, 0.1);
+  --donut-center-bg: #e2e8f0;
+  /* Frosted glass (light) */
+  --glass-bg: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(255, 255, 255, 0.38) 55%,
+    rgba(248, 250, 252, 0.48) 100%
+  );
+  --glass-border: rgba(255, 255, 255, 0.55);
+  --glass-border-outer: rgba(15, 23, 42, 0.08);
+  --glass-shadow: 0 8px 32px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  --glass-inner-glow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+/* Dark theme */
+.dark {
+  --app-bg: #0d1117;
+  --app-surface: #141b2d;
+  --app-card: #1a2337;
+  --app-border: rgba(255, 255, 255, 0.06);
+  --app-border-strong: rgba(255, 255, 255, 0.1);
+  --text-heading: #f1f5f9;
+  --text-heading-soft: #e2e8f0;
+  --text-body: #94a3b8;
+  --text-muted: #64748b;
+  --text-mono: #64748b;
+  --accent: #3b82f6;
+  --accent-glow: rgba(59, 130, 246, 0.25);
+  --input-bg: #0d1117;
+  --input-border: rgba(255, 255, 255, 0.08);
+  --nav-inactive: #475569;
+  --nav-active: #60a5fa;
+  --overlay-scrim: rgba(0, 0, 0, 0.75);
+  --chrome-muted-bg: rgba(255, 255, 255, 0.04);
+  --funnel-track-bg: rgba(255, 255, 255, 0.05);
+  --donut-center-bg: #0d1117;
+  --glass-bg: linear-gradient(
+    155deg,
+    rgba(30, 41, 70, 0.55) 0%,
+    rgba(20, 27, 45, 0.42) 45%,
+    rgba(13, 17, 23, 0.5) 100%
+  );
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-border-outer: rgba(0, 0, 0, 0.25);
+  --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --glass-inner-glow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+html {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--app-bg);
+  font-family: "DM Sans", sans-serif;
+  color: var(--text-body);
+}
+
+/* Subtle ATS-friendly animated gradient background (premium feel, low distraction). */
+body {
+  position: relative;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  z-index: -1;
+  background: linear-gradient(-45deg, #f8fafc, #eef2ff, #f1f5f9, #ffffff);
+  background-size: 400% 400%;
+  animation: gradientMove 20s ease-in-out infinite;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.dark body::before {
+  /* Dark mode: keep it faint */
+  opacity: 0.12;
+  background: linear-gradient(-45deg, #0d1117, #141b2d, #101826, #0b1220);
+}
+
+@keyframes gradientMove {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+body {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--app-border-strong);
+  border-radius: 99px;
+}
+
+select option {
+  background: var(--app-surface);
+  color: var(--text-heading-soft);
+}
+
+/* Premium glass surfaces — profile & focal panels */
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(165%);
+  -webkit-backdrop-filter: blur(20px) saturate(165%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-inner-glow);
+}
+
+.glass-panel-subtle {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid var(--glass-border-outer);
+  box-shadow: var(--glass-shadow);
+}
+
+@keyframes glass-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.glass-shimmer-edge {
+  background-size: 200% 100%;
+  background-image: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.14) 50%,
+    transparent 60%
+  );
+  animation: glass-shimmer 4.5s ease-in-out infinite;
+}
+
+.dark .glass-shimmer-edge {
+  background-image: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(96, 165, 250, 0.12) 50%,
+    transparent 60%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::before {
+    animation: none;
+  }
+
+  .glass-shimmer-edge {
+    animation: none;
+  }
+}
