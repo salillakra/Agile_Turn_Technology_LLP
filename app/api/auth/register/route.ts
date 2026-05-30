@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcrypt";
 import { prisma } from "@/src/lib/prisma";
+import { consumeApiRateLimit, rateLimitedResponse, readRateLimitConfig } from "@/src/lib/api-rate-limit";
 
 /**
  * POST /api/auth/register
@@ -38,6 +39,29 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const cfg = readRateLimitConfig({
+      maxEnv: "AUTH_REGISTER_RATE_MAX",
+      windowMsEnv: "AUTH_REGISTER_RATE_WINDOW_MS",
+      defaultMax: 10,
+      defaultWindowMs: 60_000,
+    });
+    const limited = await consumeApiRateLimit({
+      prefix: "recruitment:auth:ratelimit:v1:",
+      scope: "register",
+      identity: trimmedEmail,
+      max: cfg.max,
+      windowMs: cfg.windowMs,
+    });
+    if (limited.ok === false) {
+      return rateLimitedResponse({
+        message: "Too many registration attempts. Try again later.",
+        retryAfterSeconds: limited.retryAfterSeconds,
+        limit: cfg.max,
+        windowSeconds: Math.round(cfg.windowMs / 1000),
+      });
+    }
     if (!password || typeof password !== "string" || password.length < 8) {
       return NextResponse.json(
         { error: "Password is required and must be at least 8 characters." },
@@ -45,7 +69,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const trimmedEmail = email.trim().toLowerCase();
     const existing = await prisma.user.findUnique({
       where: { email: trimmedEmail },
     });

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Jobs from "@/components/pages/Jobs";
+import { JOBS_LIST_REFRESH_EVENT } from "@/src/lib/applicants-refresh-event";
 
 /** Map `GET /api/jobs` row to `Jobs` card shape (mock-compatible). */
 function apiJobToUi(j) {
@@ -64,6 +65,14 @@ export default function JobsPage() {
     return () => {
       cancelled = true;
     };
+  }, [refreshJobs]);
+
+  useEffect(() => {
+    const onRefresh = () => {
+      void refreshJobs();
+    };
+    window.addEventListener(JOBS_LIST_REFRESH_EVENT, onRefresh);
+    return () => window.removeEventListener(JOBS_LIST_REFRESH_EVENT, onRefresh);
   }, [refreshJobs]);
 
   if (loadState === "loading") {

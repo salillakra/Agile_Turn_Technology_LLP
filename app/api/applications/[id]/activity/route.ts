@@ -5,20 +5,14 @@ import { apiError } from "@/src/lib/api-error-response";
 import { canAccessJobByScope } from "@/src/lib/rbac-scope";
 import { isValidCuid } from "@/src/lib/validate-id";
 import { prisma } from "@/src/lib/prisma";
+import { parseActivityLogDetails } from "@/src/lib/activity-log-parse";
+import { getCache, readPositiveIntEnv, setCache } from "@/src/lib/cache/cache-utils";
+import { applicationActivityFeedKey } from "@/src/lib/cache/cache-keys";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
-
-function parseActivityDetails(details: string | null): unknown {
-  if (details == null) return null;
-  try {
-    return JSON.parse(details);
-  } catch {
-    return { text: details };
-  }
-}
 
 /** GET /api/applications/[id]/activity — fetch ActivityLog entries for an application. */
 export async function GET(_request: Request, context: RouteContext) {
@@ -60,6 +54,13 @@ export async function GET(_request: Request, context: RouteContext) {
   const limit = limitParsed;
   const offset = (page - 1) * limit;
 
+  const ttlSec = Math.max(1, readPositiveIntEnv("ACTIVITY_FEED_CACHE_TTL_SEC", 10));
+  const cacheKey = applicationActivityFeedKey({ applicationId: id, page, limit });
+  const cached = await getCache<{ logs: unknown[]; page: number; totalPages: number }>(cacheKey);
+  if (cached.hit && cached.value && Array.isArray(cached.value.logs)) {
+    return NextResponse.json(cached.value, { headers: { "X-Cache-Application-Activity": "hit" } });
+  }
+
   const totalLogs = await prisma.activityLog.count({
     where: { applicationId: id },
   });
@@ -71,22 +72,36 @@ export async function GET(_request: Request, context: RouteContext) {
     skip: offset,
     take: limit,
     select: {
+      id: true,
       action: true,
+      applicationId: true,
+      interviewId: true,
+      interviewerId: true,
+      candidateId: true,
       details: true,
       createdAt: true,
       user: { select: { id: true, name: true, email: true } },
     },
   });
 
-  return NextResponse.json({
+  const payload = {
     logs: logs.map((l) => ({
+      id: l.id,
       action: l.action,
-      details: parseActivityDetails(l.details),
+      applicationId: l.applicationId,
+      interviewId: l.interviewId,
+      interviewerId: l.interviewerId,
+      candidateId: l.candidateId,
+      details: parseActivityLogDetails(l.details),
       createdAt: l.createdAt,
       user: l.user,
     })),
     page,
     totalPages,
-  });
+  };
+
+  void setCache(cacheKey, payload, { ttlSec });
+
+  return NextResponse.json(payload, { headers: { "X-Cache-Application-Activity": "miss" } });
 }
 

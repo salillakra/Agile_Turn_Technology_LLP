@@ -6,6 +6,10 @@ import { canEditCandidate } from "@/src/lib/rbac";
 import { buildCandidateVisibilityWhere } from "@/src/lib/rbac-scope";
 import { isValidCuid } from "@/src/lib/validate-id";
 import { isResumeParseResult } from "@/src/lib/resume-parse-result";
+import { syncCandidateFromResumeParse } from "@/src/lib/candidate-parse-sync";
+import { RESUME_APPLY_LIMITS } from "@/src/lib/resume-parse-limits";
+import { truncateSummaryWithFullStop } from "@/src/lib/text-terminal-punctuation";
+import { isStructuredResumeParse } from "@/src/lib/structured-resume-parse";
 import {
   buildResumeParseAppliedToCandidateDetails,
   serializeActivityLogDetails,
@@ -15,6 +19,8 @@ import {
   formatCandidateDetail,
 } from "@/src/lib/candidate-detail-response";
 import { ACTIVITY_ACTION_RESUME_PARSE_APPLIED_TO_CANDIDATE } from "@/src/lib/resume-parse-activity-log";
+import { enqueueCandidateEmbedding } from "@/src/lib/enqueue-entity-embedding";
+import { enqueueCandidateEmbeddingAfterParse } from "@/src/lib/resume-parse-embedding";
 
 export const runtime = "nodejs";
 
@@ -23,9 +29,10 @@ type RouteContext = { params: Promise<{ id: string }> };
 /**
  * POST /api/candidates/[id]/resume/parse/apply
  *
- * Persists recruiter-reviewed parse output onto `Candidate` (name, experience years, skills).
+ * Persists recruiter-reviewed parse output onto `Candidate` (skills, experience, structured NLP profile).
  * Body: `{ resumeParseJobId, result }` where `result` matches `ResumeParseResult`.
- * The job must be `DONE` for this candidate.
+ * Optional `structured` (schema v8) overrides embedded `result.structured` for summary, companies, education, certifications.
+ * The job must be `COMPLETED` for this candidate.
  *
  * **RBAC:** `canEditCandidate` — ADMIN and RECRUITER only.
  */
@@ -61,12 +68,16 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const jobId = typeof body.resumeParseJobId === "string" ? body.resumeParseJobId.trim() : "";
   const result = body.result;
+  const structuredBody = body.structured;
 
   if (!jobId || !isValidCuid(jobId)) {
     return apiError("VALIDATION_ERROR", "resumeParseJobId must be a valid id", 400);
   }
   if (!isResumeParseResult(result)) {
     return apiError("VALIDATION_ERROR", "result must match ResumeParseResult (name, skills, experience)", 400);
+  }
+  if (structuredBody !== undefined && !isStructuredResumeParse(structuredBody)) {
+    return apiError("VALIDATION_ERROR", "structured must match StructuredResumeParse (schema v8)", 400);
   }
 
   const job = await prisma.resumeParseJob.findUnique({
@@ -82,7 +93,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   if (!job || job.candidateId !== candidateId) {
     return apiError("NOT_FOUND", "Parse job not found for this candidate", 404);
   }
-  if (job.status !== "DONE") {
+  if (job.status !== "COMPLETED") {
     return apiError("INVALID_STATE", "Parse job must be completed before applying", 409);
   }
 
@@ -90,14 +101,23 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     Math.min(60, Math.max(0, Number.isFinite(result.experience.years) ? result.experience.years : 0))
   );
 
-  const MAX_SKILLS = 50;
-  const MAX_NAME_LEN = 200;
+  const { MAX_SKILLS, MAX_SKILL_LEN, MAX_NAME_LEN, MAX_SUMMARY_LEN } = RESUME_APPLY_LIMITS;
 
-  const skillRows = result.skills
+  const rawSkills = result.skills
     .slice(0, MAX_SKILLS)
     .map((s) => (typeof s === "string" ? s.trim() : ""))
     .filter((s) => s.length > 0)
-    .map((skillName) => ({ candidateId, skillName: skillName.slice(0, 200) }));
+    .map((s) => s.slice(0, MAX_SKILL_LEN));
+
+  const experienceSummary = truncateSummaryWithFullStop(
+    result.experience.summary,
+    MAX_SUMMARY_LEN
+  );
+  const skillRows = rawSkills.map((skillName) => ({ candidateId, skillName }));
+
+  const structuredParse =
+    structuredBody !== undefined ? structuredBody : result.structured;
+  const structuredOrNull = isStructuredResumeParse(structuredParse) ? structuredParse : null;
 
   const detailsSerialized = serializeActivityLogDetails(
     buildResumeParseAppliedToCandidateDetails(job.id, job.fileHash)
@@ -115,29 +135,33 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   }
 
   try {
-    // Use a batch transaction (array form) so dev-time route compilation or slower I/O
-    // doesn't hit Prisma interactive transaction timeout (default ~5s).
-    const ops: Parameters<typeof prisma.$transaction>[0] = [
-      prisma.candidateSkill.deleteMany({ where: { candidateId } }),
-      ...(skillRows.length > 0 ? [prisma.candidateSkill.createMany({ data: skillRows })] : []),
-      prisma.candidate.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.candidateSkill.deleteMany({ where: { candidateId } });
+      if (skillRows.length > 0) {
+        await tx.candidateSkill.createMany({ data: skillRows });
+      }
+      await tx.candidate.update({
         where: { id: candidateId },
-        data: {
-          candidateName,
-          totalExperience: years,
-          relevantExperience: years,
+        data: { candidateName },
+      });
+      await syncCandidateFromResumeParse(tx, {
+        candidateId,
+        result: {
+          ...result,
+          skills: rawSkills,
+          experience: { years, summary: experienceSummary },
         },
-      }),
-      prisma.activityLog.create({
+        structured: structuredOrNull,
+      });
+      await tx.activityLog.create({
         data: {
           candidateId,
           userId,
           action: ACTIVITY_ACTION_RESUME_PARSE_APPLIED_TO_CANDIDATE,
           details: detailsSerialized.json,
         },
-      }),
-    ];
-    await prisma.$transaction(ops);
+      });
+    });
 
     const updated = await prisma.candidate.findUnique({
       where: { id: candidateId },
@@ -146,6 +170,11 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     if (!updated) {
       return apiError("NOT_FOUND", "Candidate not found", 404);
     }
+
+    void enqueueCandidateEmbeddingAfterParse(candidateId).catch((e) => {
+      console.error("[POST .../resume/parse/apply] embedding enqueue failed:", e);
+    });
+
     return NextResponse.json(formatCandidateDetail(updated));
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

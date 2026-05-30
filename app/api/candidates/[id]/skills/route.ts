@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { requireApiAuth } from "@/src/lib/api-auth";
 import { canEditCandidate } from "@/src/lib/rbac";
 import { buildCandidateVisibilityWhere } from "@/src/lib/rbac-scope";
+import { enqueueCandidateEmbedding } from "@/src/lib/enqueue-entity-embedding";
+import { invalidateCandidateScoringCaches } from "@/src/lib/ai/candidate-scoring-cache";
+import { invalidateCandidateRecommendedCandidatesCaches } from "@/src/lib/job-recommended-candidates-cache";
 import { prisma } from "@/src/lib/prisma";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -47,6 +50,11 @@ export async function POST(request: Request, context: RouteContext) {
 
   const skill = await prisma.candidateSkill.create({
     data: { candidateId, skillName },
+  });
+  void invalidateCandidateRecommendedCandidatesCaches(candidateId);
+  void invalidateCandidateScoringCaches(candidateId);
+  void enqueueCandidateEmbedding(candidateId).catch((e) => {
+    console.error("[POST /api/candidates/[id]/skills] embedding enqueue failed:", e);
   });
   return NextResponse.json(skill, { status: 201 });
 }

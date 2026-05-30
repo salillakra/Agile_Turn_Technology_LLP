@@ -134,7 +134,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   }
 
   const done = await prisma.resumeParseJob.findFirst({
-    where: { candidateId, fileHash: hashed.hash, status: "DONE" },
+    where: { candidateId, fileHash: hashed.hash, status: "COMPLETED" },
     orderBy: { createdAt: "desc" },
     select: { id: true },
   });

@@ -5,6 +5,8 @@ import { checkNotificationApiRateLimit } from "@/src/lib/rate-limit";
 import { prisma } from "@/src/lib/prisma";
 import { notificationPriorityToApi } from "@/src/lib/notification-priority-api";
 import { notificationReferenceTypeToApi } from "@/src/lib/notification-reference-api";
+import { invalidateCacheByTag } from "@/src/lib/cache/cache-utils";
+import { notificationsUserTagKey } from "@/src/lib/cache/cache-keys";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -37,6 +39,9 @@ export async function PATCH(_request: Request, context: RouteContext) {
   if (result.count === 0) {
     return apiError("NOT_FOUND", "Notification not found", 404);
   }
+
+  // Best-effort cache invalidation (unread count + pages).
+  await invalidateCacheByTag(notificationsUserTagKey(userId), 1_000);
 
   const row = await prisma.notification.findUnique({
     where: { id },

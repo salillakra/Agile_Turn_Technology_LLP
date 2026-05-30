@@ -4,6 +4,16 @@ import { checkNotificationApiRateLimit } from "@/src/lib/rate-limit";
 import { prisma } from "@/src/lib/prisma";
 import { notificationPriorityToApi } from "@/src/lib/notification-priority-api";
 import { notificationReferenceTypeToApi } from "@/src/lib/notification-reference-api";
+import {
+  getCache,
+  readPositiveIntEnv,
+  registerCacheForTags,
+  setCache,
+} from "@/src/lib/cache/cache-utils";
+import {
+  notificationsPageKey,
+  notificationsUserTagKey,
+} from "@/src/lib/cache/cache-keys";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -35,6 +45,26 @@ export async function GET(request: Request) {
     MAX_LIMIT,
     Math.max(1, parseInt(String(limitRaw ?? String(DEFAULT_LIMIT)), 10) || DEFAULT_LIMIT)
   );
+
+  const ttlSec = Math.max(1, readPositiveIntEnv("NOTIFICATIONS_FEED_CACHE_TTL_SEC", 20));
+  const cacheKey = notificationsPageKey({ userId, page, limit });
+  const cached = await getCache<{
+    notifications: unknown[];
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  }>(cacheKey);
+  if (
+    cached.hit &&
+    cached.value &&
+    Array.isArray(cached.value.notifications) &&
+    typeof cached.value.total === "number"
+  ) {
+    return NextResponse.json(cached.value, {
+      headers: { "X-Cache-Notifications-Feed": "hit" },
+    });
+  }
 
   const total = await prisma.notification.count({ where: { userId } });
   const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
@@ -69,7 +99,7 @@ export async function GET(request: Request) {
     },
   });
 
-  return NextResponse.json({
+  const payload = {
     notifications: rows.map((n) => ({
       id: n.id,
       type: n.type,
@@ -85,5 +115,14 @@ export async function GET(request: Request) {
     limit,
     total,
     totalPages,
+  };
+
+  const { ok } = await setCache(cacheKey, payload, { ttlSec });
+  if (ok) {
+    await registerCacheForTags(cacheKey, [notificationsUserTagKey(userId)], ttlSec);
+  }
+
+  return NextResponse.json(payload, {
+    headers: { "X-Cache-Notifications-Feed": "miss" },
   });
 }

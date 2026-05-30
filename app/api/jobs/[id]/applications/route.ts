@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireApiAuth } from "@/src/lib/api-auth";
 import { canViewCandidates } from "@/src/lib/rbac";
 import { canAccessJobByScope } from "@/src/lib/rbac-scope";
+import { dedupeApplicationsByCandidateIdentity } from "@/src/lib/candidate-identity";
 import { prisma } from "@/src/lib/prisma";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -24,19 +25,22 @@ export async function GET(_request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
 
-  const applications = await prisma.application.findMany({
-    where: { jobId, withdrawnAt: null },
-    orderBy: { appliedDate: "desc" },
-    select: {
-      id: true,
-      candidateId: true,
-      stage: true,
-      rating: true,
-      rejectionReason: true,
-      appliedDate: true,
-      candidate: true,
-    },
-  });
+  const applications = dedupeApplicationsByCandidateIdentity(
+    await prisma.application.findMany({
+      where: { jobId, withdrawnAt: null },
+      orderBy: { appliedDate: "desc" },
+      select: {
+        id: true,
+        jobId: true,
+        candidateId: true,
+        stage: true,
+        rating: true,
+        rejectionReason: true,
+        appliedDate: true,
+        candidate: true,
+      },
+    })
+  );
 
   const data = applications.map((a) => ({
     id: a.id,

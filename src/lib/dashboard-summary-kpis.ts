@@ -7,7 +7,7 @@ import {
   computeDashboardFunnelRates,
 } from "@/src/lib/metrics";
 
-export type ApplicationCreatedAtClause =
+export type ApplicationAppliedDateClause =
   | { gte: Date }
   | { gte: Date; lt: Date };
 
@@ -26,15 +26,15 @@ export type DashboardSummaryApplicationKpis = {
   interviewToHireRate: number;
 };
 
-/** Application-only KPIs for one `createdAt` window (current: gte only; previous: gte+lt). */
+/** Application-only KPIs for one `appliedDate` window (current: gte only; previous: gte+lt). */
 export async function computeDashboardSummaryApplicationKpis(
   jobScope: { jobId?: { in: string[] } },
-  createdAt: ApplicationCreatedAtClause | undefined
+  appliedDate: ApplicationAppliedDateClause | undefined
 ): Promise<DashboardSummaryApplicationKpis> {
   const applicationsWhere = {
     withdrawnAt: null as null,
     ...jobScope,
-    ...(createdAt ? { createdAt } : {}),
+    ...(appliedDate ? { appliedDate } : {}),
   };
 
   const [applicationStageCounts, candidateGroups, hiredApplications] = await Promise.all([
@@ -50,7 +50,7 @@ export async function computeDashboardSummaryApplicationKpis(
     }),
     prisma.application.findMany({
       where: { ...applicationsWhere, stage: "HIRED" },
-      select: { createdAt: true, hiredAt: true },
+      select: { appliedDate: true, hiredAt: true },
     }),
   ]);
 
@@ -85,7 +85,7 @@ export async function computeDashboardSummaryApplicationKpis(
       const hiredAt = app.hiredAt;
       if (!hiredAt) continue;
       const days =
-        (hiredAt.getTime() - app.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+        (hiredAt.getTime() - app.appliedDate.getTime()) / (1000 * 60 * 60 * 24);
       if (days >= 0) durationsInDays.push(days);
     }
     averageTimeToHire = calculateAverageTimeToHire(durationsInDays);

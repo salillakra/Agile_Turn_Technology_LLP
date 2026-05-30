@@ -13,6 +13,7 @@ import {
   canManageRecruiterAssignments,
   isAdmin,
 } from "@/src/lib/rbac";
+import { validateNewJobForm } from "@/src/lib/job-create-form-validation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -158,8 +159,9 @@ export default function Jobs({ jobs, setJobs, applicants = [], refreshJobs }) {
     );
     setModal(true);
   };
+  const createFormError = edit ? null : validateNewJobForm(form);
+
   const save = async () => {
-    if (!form.title) return;
     setSaveError("");
     const splitCsv = (v) =>
       String(v || "")
@@ -191,6 +193,7 @@ export default function Jobs({ jobs, setJobs, applicants = [], refreshJobs }) {
       allowReferrals: !!form.allowReferrals,
       tags: splitCsv(form.tags),
     };
+    const minYears = Number(form.minimumExperienceYears);
     const payload = {
       title: form.title,
       department: form.dept,
@@ -200,8 +203,20 @@ export default function Jobs({ jobs, setJobs, applicants = [], refreshJobs }) {
       jobMeta: jobMetaPayload,
       description: form.roleSummary || null,
       additionalComments: null,
-      yearsOfExperience: null,
+      yearsOfExperience:
+        Number.isInteger(minYears) && minYears >= 0 ? minYears : null,
     };
+
+    if (!edit) {
+      const formErr = validateNewJobForm(form);
+      if (formErr) {
+        setSaveError(formErr);
+        return;
+      }
+    } else if (!form.title?.trim()) {
+      setSaveError("Job title is required.");
+      return;
+    }
 
     if (typeof refreshJobs === "function") {
       try {
@@ -376,11 +391,6 @@ export default function Jobs({ jobs, setJobs, applicants = [], refreshJobs }) {
             job.applicantCount != null
               ? job.applicantCount
               : applicants.filter((a) => a.jobId === job.id).length;
-          const hiredCnt =
-            job.hiredCount != null
-              ? job.hiredCount
-              : applicants.filter((a) => a.jobId === job.id && a.stage === "Hired").length;
-          const openingsDen = Math.max(1, Number(job.openings) || 1);
           return (
             <motion.div
               key={job.id}
@@ -394,7 +404,18 @@ export default function Jobs({ jobs, setJobs, applicants = [], refreshJobs }) {
               <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text-heading)", fontFamily: "'Fraunces',serif" }}>{job.title}</span>
+                    <Link
+                      href={`/jobs/${job.id}`}
+                      style={{
+                        fontSize: 15,
+                        fontWeight: 700,
+                        color: "var(--text-heading)",
+                        fontFamily: "'Fraunces',serif",
+                        textDecoration: "none",
+                      }}
+                    >
+                      {job.title}
+                    </Link>
                     <Badge label={job.status} color={job.status === "Open" ? "#34D399" : job.status === "Paused" ? "#FBBF24" : "#F87171"} bg={job.status === "Open" ? "rgba(52,211,153,.1)" : job.status === "Paused" ? "rgba(251,191,36,.1)" : "rgba(248,113,113,.1)"} />
                   </div>
                   <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
@@ -407,10 +428,6 @@ export default function Jobs({ jobs, setJobs, applicants = [], refreshJobs }) {
                   <div style={{ textAlign: "center" }}>
                     <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#60A5FA", fontFamily: "'Fraunces',serif" }}>{appCnt}</p>
                     <p style={{ ...T.mono, margin: 0, fontSize: 9 }}>APPLICANTS</p>
-                  </div>
-                  <div style={{ textAlign: "center" }}>
-                    <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#34D399", fontFamily: "'Fraunces',serif" }}>{hiredCnt}/{openingsDen}</p>
-                    <p style={{ ...T.mono, margin: 0, fontSize: 9 }}>FILLED</p>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     <Link
@@ -471,16 +488,6 @@ export default function Jobs({ jobs, setJobs, applicants = [], refreshJobs }) {
                   </div>
                 </div>
               </div>
-              <div style={{ marginTop: 12, height: 4, background: "rgba(255,255,255,.05)", borderRadius: 99, overflow: "hidden" }}>
-                <div
-                  style={{
-                    height: "100%",
-                    width: `${Math.min(100, (hiredCnt / openingsDen) * 100)}%`,
-                    background: "#34D399",
-                    borderRadius: 99,
-                  }}
-                />
-              </div>
               </Card>
             </motion.div>
           );
@@ -489,10 +496,12 @@ export default function Jobs({ jobs, setJobs, applicants = [], refreshJobs }) {
       <Modal open={modal} onClose={() => setModal(false)} title={edit ? "Edit Position" : "New Position"}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
           <div style={{ gridColumn: "1/-1" }}>
-            <Field label="Job Title"><Input value={form.title} onChange={(e) => setForm(f({ title: e.target.value }))} placeholder="e.g. Senior Engineer" /></Field>
+            <Field label="Job Title *">
+              <Input value={form.title} onChange={(e) => setForm(f({ title: e.target.value }))} placeholder="e.g. Senior Engineer" />
+            </Field>
           </div>
-          <Field label="Department"><Select value={form.dept} onChange={(v) => setForm(f({ dept: v }))} options={DEPARTMENTS} /></Field>
-          <Field label="Location"><Select value={form.loc} onChange={(v) => setForm(f({ loc: v }))} options={LOCATIONS} /></Field>
+          <Field label="Department *"><Select value={form.dept} onChange={(v) => setForm(f({ dept: v }))} options={DEPARTMENTS} /></Field>
+          <Field label="Location *"><Select value={form.loc} onChange={(v) => setForm(f({ loc: v }))} options={LOCATIONS} /></Field>
           <Field label="Employment Type">
             <Select
               value={form.employmentType}
@@ -505,14 +514,18 @@ export default function Jobs({ jobs, setJobs, applicants = [], refreshJobs }) {
             />
           </Field>
           <Field label="Openings"><Input type="number" min={1} value={form.openings} onChange={(e) => setForm(f({ openings: +e.target.value }))} /></Field>
-          <Field label="Role Summary">
-            <Textarea rows={3} value={form.roleSummary} onChange={(e) => setForm(f({ roleSummary: e.target.value }))} />
+          <Field label="Role Summary *">
+            <Textarea rows={3} value={form.roleSummary} onChange={(e) => setForm(f({ roleSummary: e.target.value }))} placeholder="Brief role overview for matching" />
           </Field>
-          <Field label="Key Responsibilities">
+          <Field label="Key Responsibilities *">
             <Textarea rows={3} value={form.keyResponsibilities} onChange={(e) => setForm(f({ keyResponsibilities: e.target.value }))} />
           </Field>
-          <Field label="Required Skills (comma-separated)">
-            <Input value={form.requiredSkills} onChange={(e) => setForm(f({ requiredSkills: e.target.value }))} />
+          <Field label="Required Skills * (comma-separated)">
+            <Input
+              value={form.requiredSkills}
+              onChange={(e) => setForm(f({ requiredSkills: e.target.value }))}
+              placeholder="e.g. React, TypeScript, SQL"
+            />
           </Field>
           <Field label="Preferred Skills (comma-separated)">
             <Input value={form.preferredSkills} onChange={(e) => setForm(f({ preferredSkills: e.target.value }))} />
@@ -527,8 +540,17 @@ export default function Jobs({ jobs, setJobs, applicants = [], refreshJobs }) {
               placeholder="e.g. 80"
             />
           </Field>
-          <Field label="Experience Required">
+          <Field label="Experience Required *">
             <Input value={form.experienceRequired} onChange={(e) => setForm(f({ experienceRequired: e.target.value }))} placeholder="e.g. 2-4 years" />
+          </Field>
+          <Field label="Minimum Experience (years) *">
+            <Input
+              type="number"
+              min={0}
+              value={form.minimumExperienceYears}
+              onChange={(e) => setForm(f({ minimumExperienceYears: e.target.value }))}
+              placeholder="0 for entry-level"
+            />
           </Field>
           <Field label="Pipeline Stages (comma-separated)">
             <Input value={form.pipelineStages} onChange={(e) => setForm(f({ pipelineStages: e.target.value }))} />
@@ -538,7 +560,6 @@ export default function Jobs({ jobs, setJobs, applicants = [], refreshJobs }) {
           <Field label="Currency"><Input value={form.currency} onChange={(e) => setForm(f({ currency: e.target.value.toUpperCase() }))} /></Field>
           <Field label="Budget Approval Status"><Input value={form.budgetApprovalStatus} onChange={(e) => setForm(f({ budgetApprovalStatus: e.target.value }))} /></Field>
           <Field label="Education"><Input value={form.education} onChange={(e) => setForm(f({ education: e.target.value }))} /></Field>
-          <Field label="Minimum Experience (years)"><Input type="number" min={0} value={form.minimumExperienceYears} onChange={(e) => setForm(f({ minimumExperienceYears: e.target.value }))} /></Field>
           <Field label="Location Constraints"><Input value={form.locationConstraints} onChange={(e) => setForm(f({ locationConstraints: e.target.value }))} /></Field>
           <Field label="Application Deadline"><Input type="date" value={form.applicationDeadline} onChange={(e) => setForm(f({ applicationDeadline: e.target.value }))} /></Field>
           <Field label="Allow Referrals">
@@ -556,11 +577,18 @@ export default function Jobs({ jobs, setJobs, applicants = [], refreshJobs }) {
           </Field>
           <Field label="Status"><Select value={form.status} onChange={(v) => setForm(f({ status: v }))} options={["Open", "Paused", "Closed"]} /></Field>
         </div>
+        {!edit && createFormError ? (
+          <p style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 12, lineHeight: 1.5 }}>
+            Required for recommendations: title, location, role summary, required skills, and minimum experience (years).
+          </p>
+        ) : null}
         {saveError ? (
           <p style={{ color: "#FCA5A5", fontSize: 12, marginTop: 12, fontFamily: "'DM Mono',monospace" }}>{saveError}</p>
         ) : null}
         <div style={{ marginTop: 20 }}>
-          <Button onClick={save}>Save</Button>
+          <Button onClick={save} disabled={!edit && !!createFormError}>
+            Save
+          </Button>
         </div>
       </Modal>
       <Modal

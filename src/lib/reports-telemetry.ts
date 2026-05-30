@@ -1,4 +1,5 @@
 import type { NextResponse } from "next/server";
+import { recordCacheAnalyticsEvent } from "@/src/lib/cache/cache-analytics";
 
 export type ReportsTelemetryEvent = {
   kind: "reports_api";
@@ -41,6 +42,11 @@ export function withReportsTelemetry(
     errorCode?: string;
   }
 ): NextResponse {
+  void recordCacheAnalyticsEvent({
+    endpoint: opts.endpoint,
+    cache: opts.cacheHit,
+    responseTimeMs: Date.now() - opts.startedAt,
+  });
   emitReportsTelemetry({
     endpoint: opts.endpoint,
     role: opts.role,

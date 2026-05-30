@@ -4,7 +4,7 @@ import { prisma } from "@/src/lib/prisma";
 
 const MS_PER_DAY = 86_400_000;
 
-type ApplicationCreatedAtClause =
+type ApplicationAppliedDateClause =
   | { gte: Date }
   | { gte: Date; lt: Date };
 
@@ -95,22 +95,22 @@ function toAverages(agg: Map<ApplicationStage, { sumMs: number; n: number }>): D
 
 /**
  * Mean time-in-stage from `ActivityLog` STAGE_CHANGE rows (exit timestamp = end of stage `from`).
- * Only **completed** segments are counted (a transition out of the stage exists). Uses `Application.createdAt`
+ * Only **completed** segments are counted (a transition out of the stage exists). Uses `Application.appliedDate`
  * as entry into APPLIED when no earlier log exists.
  */
 export async function computeDashboardTimeInStageAverages(
   jobScope: { jobId?: { in: string[] } },
-  createdAt: ApplicationCreatedAtClause | undefined
+  appliedDate: ApplicationAppliedDateClause | undefined
 ): Promise<DashboardTimeInStageAverages> {
   const applicationsWhere = {
     withdrawnAt: null as null,
     ...jobScope,
-    ...(createdAt ? { createdAt } : {}),
+    ...(appliedDate ? { appliedDate } : {}),
   };
 
   const applications = await prisma.application.findMany({
     where: applicationsWhere,
-    select: { id: true, createdAt: true },
+    select: { id: true, appliedDate: true },
   });
 
   if (applications.length === 0) {
@@ -147,7 +147,7 @@ export async function computeDashboardTimeInStageAverages(
     const sorted = [...appLogs].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
     let currentStage: ApplicationStage = "APPLIED";
-    let stageStartMs = app.createdAt.getTime();
+    let stageStartMs = app.appliedDate.getTime();
 
     for (const log of sorted) {
       const parsed = parseStageChangeDetails(log.details);

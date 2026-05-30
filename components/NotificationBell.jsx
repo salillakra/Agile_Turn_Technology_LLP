@@ -83,8 +83,23 @@ export default function NotificationBell() {
 
   useEffect(() => {
     fetchUnreadCount();
-    const t = setInterval(fetchUnreadCount, POLL_INTERVAL_MS);
-    return () => clearInterval(t);
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        void fetchUnreadCount();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    const t = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void fetchUnreadCount();
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [fetchUnreadCount]);
 
   useEffect(() => {

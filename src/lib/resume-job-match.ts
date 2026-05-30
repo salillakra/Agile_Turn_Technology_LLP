@@ -50,23 +50,44 @@ function isSkillMatch(requiredRaw: string, candidateRaw: string): boolean {
 export function computeSkillMatchPercent(params: {
   requiredSkills: string[];
   candidateSkills: string[];
-}): { matched: number; required: number; percent: number } {
-  const required = (params.requiredSkills ?? [])
-    .map((s) => (typeof s === "string" ? normalizeSkill(s) : ""))
+}): {
+  matched: number;
+  required: number;
+  percent: number;
+  matchedSkills: string[];
+  missingSkills: string[];
+} {
+  const requiredRaw = (params.requiredSkills ?? [])
+    .filter((s): s is string => typeof s === "string")
+    .map((s) => s.trim())
     .filter(Boolean);
   const candidate = (params.candidateSkills ?? [])
     .map((s) => (typeof s === "string" ? s : ""))
     .filter((s) => s.trim().length > 0);
 
-  if (required.length === 0) {
-    return { matched: 0, required: 0, percent: 100 };
+  if (requiredRaw.length === 0) {
+    return { matched: 0, required: 0, percent: 100, matchedSkills: [], missingSkills: [] };
   }
 
-  let matched = 0;
-  for (const r of required) {
-    if (candidate.some((c) => isSkillMatch(r, c))) matched += 1;
+  const matchedSkills: string[] = [];
+  const missingSkills: string[] = [];
+
+  for (const label of requiredRaw) {
+    if (candidate.some((c) => isSkillMatch(label, c))) {
+      matchedSkills.push(label);
+    } else {
+      missingSkills.push(label);
+    }
   }
-  const percent = Math.round((matched / required.length) * 1000) / 10; // 1 decimal
-  return { matched, required: required.length, percent };
+
+  const matched = matchedSkills.length;
+  const percent = Math.round((matched / requiredRaw.length) * 1000) / 10;
+  return {
+    matched,
+    required: requiredRaw.length,
+    percent,
+    matchedSkills,
+    missingSkills,
+  };
 }
 

@@ -19,6 +19,8 @@ tsconfig.tsbuildinfo
 # Debug / OS
 npm-debug.log*
 .DS_Store
+cookies.txt
+cookies*.txt
 
 # Local uploads (keep directory structure via .gitkeep)
 uploads/resumes/*

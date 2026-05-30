@@ -60,6 +60,22 @@ type JobMetaInput = {
   resumeMatchThreshold?: number | null;
 };
 
+/**
+ * Fields required for hybrid recommendations, embeddings, and skill matching.
+ * Enforced on POST /api/jobs (create only).
+ */
+export const JOB_CREATE_RECOMMENDATION_REQUIRED = [
+  "title",
+  "department",
+  "location",
+  "roleSummary",
+  "keyResponsibilities",
+  "requiredSkills",
+  "experienceRequired",
+  "minimumExperienceYears",
+  "employmentType",
+] as const;
+
 export function validateJobMetaForCreate(meta: JobMetaInput): { error: string } | null {
   if (!meta.employmentType) return { error: "employmentType is required" };
   if (!["FULL_TIME", "INTERNSHIP", "CONTRACT"].includes(meta.employmentType)) {
@@ -68,13 +84,53 @@ export function validateJobMetaForCreate(meta: JobMetaInput): { error: string } 
   if (!Number.isInteger(meta.numberOfOpenings) || Number(meta.numberOfOpenings) < 1) {
     return { error: "numberOfOpenings must be an integer >= 1" };
   }
-  if (!meta.roleSummary?.trim()) return { error: "roleSummary is required" };
-  if (!meta.keyResponsibilities?.trim()) return { error: "keyResponsibilities is required" };
-  if (!meta.experienceRequired?.trim()) return { error: "experienceRequired is required" };
+  if (!meta.roleSummary?.trim()) {
+    return { error: "roleSummary is required (used for semantic job matching)" };
+  }
+  if (!meta.keyResponsibilities?.trim()) {
+    return { error: "keyResponsibilities is required" };
+  }
+  if (!meta.experienceRequired?.trim()) {
+    return { error: "experienceRequired is required" };
+  }
   if (!Array.isArray(meta.requiredSkills) || meta.requiredSkills.length === 0) {
-    return { error: "requiredSkills must be a non-empty array" };
+    return {
+      error:
+        "requiredSkills must include at least one skill (comma-separated) for candidate recommendations",
+    };
+  }
+  if (meta.minimumExperienceYears == null || !Number.isFinite(meta.minimumExperienceYears)) {
+    return {
+      error:
+        "minimumExperienceYears is required (use 0 for entry-level / no minimum years) for experience scoring",
+    };
+  }
+  if (!Number.isInteger(meta.minimumExperienceYears) || meta.minimumExperienceYears < 0) {
+    return { error: "minimumExperienceYears must be an integer >= 0" };
   }
   return validateJobMetaCommon(meta);
+}
+
+/** Validates top-level job fields + meta for POST /api/jobs. */
+export function validateJobCreatePayload(params: {
+  title: string;
+  department: string;
+  location: string;
+  jobMeta: JobMetaInput;
+}): { error: string } | null {
+  if (!params.title.trim()) return { error: "title is required" };
+  if (!params.department.trim()) return { error: "department is required" };
+  if (!params.location.trim()) return { error: "location is required" };
+
+  const fieldErr = validateJobFields({
+    title: params.title,
+    department: params.department,
+    location: params.location,
+    description: params.jobMeta.roleSummary ?? null,
+  });
+  if (fieldErr) return fieldErr;
+
+  return validateJobMetaForCreate(params.jobMeta);
 }
 
 export function validateJobMetaCommon(meta: JobMetaInput): { error: string } | null {

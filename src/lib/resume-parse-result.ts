@@ -1,3 +1,6 @@
+import type { StructuredResumeParse } from "@/src/lib/structured-resume-parse";
+import { isStructuredResumeParse } from "@/src/lib/structured-resume-parse";
+
 /**
  * Canonical shape for `ResumeParseJob.resultJson` after a successful parse.
  * Workers should write only this structure (or a documented superset) for consistent UI and APIs.
@@ -25,6 +28,8 @@ export type ResumeParseResult = {
   name: string;
   skills: string[];
   experience: ResumeParseExperience;
+  /** Full NLP structured parse when produced by ai-service (schema v8). */
+  structured?: StructuredResumeParse;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -42,5 +47,8 @@ export function isResumeParseResult(value: unknown): value is ResumeParseResult 
   const exp = value.experience;
   if (typeof exp.years !== "number" || !Number.isFinite(exp.years)) return false;
   if (typeof exp.summary !== "string") return false;
+  if (value.structured !== undefined && !isStructuredResumeParse(value.structured)) {
+    return false;
+  }
   return true;
 }

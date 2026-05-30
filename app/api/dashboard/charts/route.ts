@@ -11,9 +11,10 @@ import {
   requireDashboardAuth,
 } from "@/src/lib/dashboard-api";
 import {
-  getDashboardCache,
-  setDashboardCache,
-} from "@/src/lib/dashboard-cache";
+  dashboardChartsCacheLogicalKey,
+  getDashboardAnalyticsCache,
+  setDashboardAnalyticsCache,
+} from "@/src/lib/dashboard-analytics-cache";
 import { calculateFraction } from "@/src/lib/metrics";
 import type { ApplicationStage } from "@prisma/client";
 import {
@@ -24,6 +25,7 @@ import {
   consumeDashboardRateLimit,
   dashboardRateLimitedResponse,
 } from "@/src/lib/dashboard-rate-limit";
+import { scheduleAnalyticsCacheRefresh } from "@/src/lib/enqueue-analytics-refresh";
 import {
   DRILLDOWN_APPLICATIONS_API,
   DRILLDOWN_APPLICANTS_PAGE,
@@ -31,7 +33,7 @@ import {
   applicationsSourceQuery,
 } from "@/src/lib/dashboard-drilldown";
 
-/** Dashboard cache uses Redis (`REDIS_URL`) or in-memory fallback; requires Node for TCP. */
+/** Dashboard cache uses Redis (`REDIS_HOST` / `REDIS_URL`) or in-memory fallback; requires Node for TCP. */
 export const runtime = "nodejs";
 
 const ENDPOINT = DASHBOARD_API_ENDPOINT.charts;
@@ -43,6 +45,7 @@ const ENDPOINT = DASHBOARD_API_ENDPOINT.charts;
  * `sourceToHireRate` = hireCount/count; `sourceToOfferRate` = (OFFER_SENT + HIRED) / count (fractions 0–1, 2 d.p.).
  * Drill-down: each `stageDistribution` / `sourceDistribution` item includes `applicationsQuery`, `applicantsDrillDownHref`, `applicationsApiUrl` where applicable (UNKNOWN source has no API filter).
  * Timezone: monthly buckets use UTC only (`toUtcMonthKey`); policy constant `DASHBOARD_METRICS_STORAGE_AND_AGGREGATION_TZ` in `@/src/lib/dashboard-range`.
+ * Cache: Redis + in-memory (TTL 5–15 min, env `DASHBOARD_ANALYTICS_CACHE_TTL_SEC`). Includes pipeline stage distribution.
  */
 export async function GET(request: Request) {
   const startedAt = Date.now();
@@ -92,9 +95,16 @@ export async function GET(request: Request) {
     );
   }
 
-  const cacheKey = `dashboard:charts:${role ?? "UNKNOWN"}:${userId ?? "UNKNOWN"}:${range}`;
-  const { value: cached } = await getDashboardCache<Record<string, unknown>>(cacheKey);
+  const cacheKey = dashboardChartsCacheLogicalKey({ role, userId, range });
+  const { value: cached } = await getDashboardAnalyticsCache<Record<string, unknown>>(cacheKey);
   if (cached != null) {
+    // SWR: serve cached immediately, refresh async.
+    scheduleAnalyticsCacheRefresh({
+      scope: "dashboard",
+      cacheKey,
+      userId: userId ?? undefined,
+      role,
+    });
     return withDashboardTelemetry(NextResponse.json(cached), {
       endpoint: ENDPOINT,
       role,
@@ -103,6 +113,13 @@ export async function GET(request: Request) {
       queryTimeMs: 0,
     });
   }
+
+  scheduleAnalyticsCacheRefresh({
+    scope: "dashboard",
+    cacheKey,
+    userId: userId ?? undefined,
+    role,
+  });
 
   const createdAt = getApplicationsCreatedAtFilter(range);
 
@@ -131,7 +148,7 @@ export async function GET(request: Request) {
         departmentDistribution: [],
         monthlyTrend: [],
       };
-      await setDashboardCache(cacheKey, emptyPayload);
+      await setDashboardAnalyticsCache(cacheKey, emptyPayload);
       const queryTimeMsEmpty = Date.now() - dbStartedAt;
       return withDashboardTelemetry(NextResponse.json(emptyPayload), {
         endpoint: ENDPOINT,
@@ -144,7 +161,7 @@ export async function GET(request: Request) {
 
     const applicationsWhere = {
       withdrawnAt: null as null,
-      ...(createdAt ? { createdAt } : {}),
+      ...(createdAt ? { appliedDate: createdAt } : {}),
       ...(!isAdmin ? { jobId: { in: scopedJobIds as string[] } } : {}),
     };
 
@@ -250,7 +267,7 @@ export async function GET(request: Request) {
       departmentDistribution,
       monthlyTrend,
     };
-    await setDashboardCache(cacheKey, payload);
+    await setDashboardAnalyticsCache(cacheKey, payload);
     const queryTimeMs = Date.now() - dbStartedAt;
     return withDashboardTelemetry(NextResponse.json(payload), {
       endpoint: ENDPOINT,

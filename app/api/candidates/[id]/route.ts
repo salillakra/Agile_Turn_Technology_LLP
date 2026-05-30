@@ -8,6 +8,10 @@ import {
   candidateDetailInclude,
   formatCandidateDetail,
 } from "@/src/lib/candidate-detail-response";
+import { candidatePatchAffectsEmbedding } from "@/src/lib/candidate-semantic-text";
+import { enqueueCandidateEmbedding } from "@/src/lib/enqueue-entity-embedding";
+import { invalidateCandidateScoringCaches } from "@/src/lib/ai/candidate-scoring-cache";
+import { invalidateCandidateRecommendedCandidatesCaches } from "@/src/lib/job-recommended-candidates-cache";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -112,6 +116,16 @@ export async function PUT(request: Request, context: RouteContext) {
     where: { id },
     data,
   });
+
+  void invalidateCandidateRecommendedCandidatesCaches(updated.id);
+  void invalidateCandidateScoringCaches(updated.id);
+
+  if (candidatePatchAffectsEmbedding(body)) {
+    void enqueueCandidateEmbedding(id).catch((e) => {
+      console.error("[PATCH /api/candidates/[id]] embedding enqueue failed:", e);
+    });
+  }
+
   return NextResponse.json(updated);
 }
 

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Applicants from "@/components/pages/Applicants";
 import { mapApplicationsApiRowToApplicantItem } from "@/src/lib/applications-drilldown-ui";
 import { T } from "@/lib/helpers";
+import { APPLICANTS_REFRESH_EVENT } from "@/src/lib/applicants-refresh-event";
 
 async function readJsonSafe(res) {
   return res.json().catch(() => ({}));
@@ -52,6 +53,14 @@ export default function ApplicantsPageClient() {
     return () => {
       cancelled = true;
     };
+  }, [refresh]);
+
+  useEffect(() => {
+    const onRefreshApplicants = () => {
+      void refresh();
+    };
+    window.addEventListener(APPLICANTS_REFRESH_EVENT, onRefreshApplicants);
+    return () => window.removeEventListener(APPLICANTS_REFRESH_EVENT, onRefreshApplicants);
   }, [refresh]);
 
   if (loadState === "loading") {

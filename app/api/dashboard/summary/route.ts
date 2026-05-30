@@ -14,9 +14,10 @@ import { calculatePercentChange } from "@/src/lib/metrics";
 import { computeDashboardSummaryApplicationKpis } from "@/src/lib/dashboard-summary-kpis";
 import { computeDashboardTimeInStageAverages } from "@/src/lib/dashboard-time-in-stage";
 import {
-  getDashboardCache,
-  setDashboardCache,
-} from "@/src/lib/dashboard-cache";
+  dashboardSummaryCacheLogicalKey,
+  getDashboardAnalyticsCache,
+  setDashboardAnalyticsCache,
+} from "@/src/lib/dashboard-analytics-cache";
 import {
   DASHBOARD_API_ENDPOINT,
   withDashboardTelemetry,
@@ -25,6 +26,7 @@ import {
   consumeDashboardRateLimit,
   dashboardRateLimitedResponse,
 } from "@/src/lib/dashboard-rate-limit";
+import { scheduleAnalyticsCacheRefresh } from "@/src/lib/enqueue-analytics-refresh";
 
 /** Dashboard cache uses Redis (`REDIS_URL`) or in-memory fallback; requires Node for TCP. */
 export const runtime = "nodejs";
@@ -44,6 +46,7 @@ function parseCompareFlag(value: string | null): boolean {
  * Includes `*AvgDays` time-in-stage metrics from `ActivityLog` `STAGE_CHANGE` (completed segments only).
  * Timezone: see `DASHBOARD_METRICS_STORAGE_AND_AGGREGATION_TZ` in `@/src/lib/dashboard-range` — no business-TZ conversion here;
  * `averageTimeToHire` is a duration from DB instants (timezone-invariant).
+ * Cache: Redis + in-memory via `dashboard-analytics-cache` (TTL 5–15 min, env `DASHBOARD_ANALYTICS_CACHE_TTL_SEC`).
  */
 export async function GET(request: Request) {
   const startedAt = Date.now();
@@ -113,11 +116,21 @@ export async function GET(request: Request) {
     );
   }
 
-  const cacheKey = `dashboard:summary:${role ?? "UNKNOWN"}:${userId ?? "UNKNOWN"}:${range}:${
-    compare ? "cmp" : "nocmp"
-  }`;
-  const { value: cached } = await getDashboardCache<Record<string, unknown>>(cacheKey);
+  const cacheKey = dashboardSummaryCacheLogicalKey({
+    role,
+    userId,
+    range,
+    compare,
+  });
+  const { value: cached } = await getDashboardAnalyticsCache<Record<string, unknown>>(cacheKey);
   if (cached != null) {
+    // SWR: serve cached immediately, refresh async.
+    scheduleAnalyticsCacheRefresh({
+      scope: "dashboard",
+      cacheKey,
+      userId: userId ?? undefined,
+      role,
+    });
     return withDashboardTelemetry(NextResponse.json(cached), {
       endpoint: ENDPOINT,
       role,
@@ -126,6 +139,13 @@ export async function GET(request: Request) {
       queryTimeMs: 0,
     });
   }
+
+  scheduleAnalyticsCacheRefresh({
+    scope: "dashboard",
+    cacheKey,
+    userId: userId ?? undefined,
+    role,
+  });
 
   const createdAt = getApplicationsCreatedAtFilter(range);
   const previousBounds = compare ? getPreviousApplicationsCreatedAtFilter(range) : null;
@@ -194,7 +214,7 @@ export async function GET(request: Request) {
             }
           : {}),
       };
-      await setDashboardCache(cacheKey, empty);
+      await setDashboardAnalyticsCache(cacheKey, empty);
       const queryTimeMs = Date.now() - dbStartedAt;
       return withDashboardTelemetry(NextResponse.json(empty), {
         endpoint: ENDPOINT,
@@ -229,14 +249,14 @@ export async function GET(request: Request) {
       compare && previousBounds
         ? await Promise.all([
             jobStatusPromise,
-            computeDashboardSummaryApplicationKpis(jobScope, createdAt),
-            computeDashboardTimeInStageAverages(jobScope, createdAt),
+          computeDashboardSummaryApplicationKpis(jobScope, createdAt),
+          computeDashboardTimeInStageAverages(jobScope, createdAt),
             computeDashboardSummaryApplicationKpis(jobScope, previousBounds),
           ])
         : await Promise.all([
             jobStatusPromise,
-            computeDashboardSummaryApplicationKpis(jobScope, createdAt),
-            computeDashboardTimeInStageAverages(jobScope, createdAt),
+          computeDashboardSummaryApplicationKpis(jobScope, createdAt),
+          computeDashboardTimeInStageAverages(jobScope, createdAt),
             Promise.resolve(null),
           ]);
 
@@ -326,7 +346,7 @@ export async function GET(request: Request) {
       );
     }
 
-    await setDashboardCache(cacheKey, payload);
+    await setDashboardAnalyticsCache(cacheKey, payload);
     const queryTimeMs = Date.now() - dbStartedAt;
     return withDashboardTelemetry(NextResponse.json(payload), {
       endpoint: ENDPOINT,

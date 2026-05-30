@@ -1,13 +1,8 @@
+import { reportsCacheLogicalKey } from "@/src/lib/cache/cache-keys";
 import { getDashboardCache, setDashboardCache } from "@/src/lib/dashboard-cache";
 
 /** Reports cache TTL (90s): balances freshness and query reduction. */
 export const REPORTS_CACHE_TTL_MS = 90_000;
-
-function normalizeToken(value: string | null | undefined): string {
-  if (value == null) return "all";
-  const v = value.trim();
-  return v === "" ? "all" : encodeURIComponent(v);
-}
 
 export function buildReportsCacheKey(params: {
   endpoint: string;
@@ -19,17 +14,7 @@ export function buildReportsCacheKey(params: {
   type?: string | null;
   format?: string | null;
 }): string {
-  return [
-    "reports",
-    normalizeToken(params.endpoint),
-    `role:${normalizeToken(params.role)}`,
-    `user:${normalizeToken(params.userId)}`,
-    `range:${normalizeToken(params.range)}`,
-    `job:${normalizeToken(params.jobId)}`,
-    `dept:${normalizeToken(params.department)}`,
-    `type:${normalizeToken(params.type)}`,
-    `format:${normalizeToken(params.format)}`,
-  ].join(":");
+  return reportsCacheLogicalKey(params);
 }
 
 export async function getReportsCache<T>(key: string): Promise<T | null> {
@@ -38,6 +23,6 @@ export async function getReportsCache<T>(key: string): Promise<T | null> {
 }
 
 export async function setReportsCache<T>(key: string, value: T): Promise<void> {
-  await setDashboardCache(key, value, REPORTS_CACHE_TTL_MS);
+  // SWR: keep reports cache entries around longer than freshness window.
+  await setDashboardCache(key, value, REPORTS_CACHE_TTL_MS * 2);
 }
-

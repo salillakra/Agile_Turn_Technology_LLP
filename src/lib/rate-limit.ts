@@ -36,21 +36,14 @@ export function checkApplicationMutationRateLimit(
   if (entry) {
     if (entry.count >= MAX_REQUESTS_PER_WINDOW) {
       const retryAfter = Math.ceil((entry.windowEnd - Date.now()) / 1000);
-      const res = apiError(
-        "RATE_LIMIT_EXCEEDED",
-        "Too many requests. Try again later.",
-        429
-      );
+      const res = apiError("RATE_LIMIT_EXCEEDED", "Too many requests. Try again later.", 429);
       res.headers.set("Retry-After", String(Math.max(1, retryAfter)));
       return res;
     }
     entry.count += 1;
   } else {
     if (store.size > 100_000) prune();
-    store.set(key, {
-      count: 1,
-      windowEnd: windowStart + WINDOW_MS,
-    });
+    store.set(key, { count: 1, windowEnd: windowStart + WINDOW_MS });
   }
 
   return null;
@@ -72,21 +65,14 @@ export function checkNotificationApiRateLimit(
   if (entry) {
     if (entry.count >= MAX_NOTIFICATION_API_REQUESTS_PER_WINDOW) {
       const retryAfter = Math.ceil((entry.windowEnd - Date.now()) / 1000);
-      const res = apiError(
-        "RATE_LIMIT_EXCEEDED",
-        "Too many requests. Try again later.",
-        429
-      );
+      const res = apiError("RATE_LIMIT_EXCEEDED", "Too many requests. Try again later.", 429);
       res.headers.set("Retry-After", String(Math.max(1, retryAfter)));
       return res;
     }
     entry.count += 1;
   } else {
     if (store.size > 100_000) prune();
-    store.set(key, {
-      count: 1,
-      windowEnd: windowStart + WINDOW_MS,
-    });
+    store.set(key, { count: 1, windowEnd: windowStart + WINDOW_MS });
   }
 
   return null;
@@ -108,21 +94,14 @@ export function checkGlobalActivityLogsRateLimit(
   if (entry) {
     if (entry.count >= MAX_ACTIVITY_LOG_REQUESTS_PER_WINDOW) {
       const retryAfter = Math.ceil((entry.windowEnd - Date.now()) / 1000);
-      const res = apiError(
-        "RATE_LIMIT_EXCEEDED",
-        "Too many requests. Try again later.",
-        429
-      );
+      const res = apiError("RATE_LIMIT_EXCEEDED", "Too many requests. Try again later.", 429);
       res.headers.set("Retry-After", String(Math.max(1, retryAfter)));
       return res;
     }
     entry.count += 1;
   } else {
     if (store.size > 100_000) prune();
-    store.set(key, {
-      count: 1,
-      windowEnd: windowStart + WINDOW_MS,
-    });
+    store.set(key, { count: 1, windowEnd: windowStart + WINDOW_MS });
   }
 
   return null;

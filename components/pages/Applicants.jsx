@@ -8,6 +8,7 @@ import { T, C, rnd, uid } from "@/lib/helpers";
 import { STAGES, SOURCES, STAGE_META, STAGE_LABEL_TO_API, SOURCE_LABEL_TO_API } from "@/data/mockData";
 import { canCreateCandidate, canEditCandidate, canDeleteCandidate, canReadResume } from "@/src/lib/rbac";
 import ResumeCandidateModal from "@/components/ResumeCandidateModal";
+import RecommendedRolesPanel from "@/components/RecommendedRolesPanel";
 import { NOTIFICATIONS_REFRESH_EVENT } from "@/components/NotificationBell";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -18,6 +19,7 @@ import Field from "@/components/ui/Field";
 import StageBadge from "@/components/ui/StageBadge";
 import StarRating from "@/components/ui/StarRating";
 import Textarea from "@/components/ui/Textarea";
+import InterviewTimeline from "@/components/InterviewTimeline";
 import { motion } from "framer-motion";
 
 export default function Applicants({ applicants, setApplicants, jobs, onRefresh }) {
@@ -87,6 +89,10 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
   const [resumeFile, setResumeFile] = useState(null);
   const [matchState, setMatchState] = useState({ status: "idle", score: null, msg: "" });
   const [draftCandidateId, setDraftCandidateId] = useState("");
+  const [recommendationsRefreshKey, setRecommendationsRefreshKey] = useState(0);
+  const [parseProfileApplied, setParseProfileApplied] = useState(false);
+  const [interviewPanelAppId, setInterviewPanelAppId] = useState("");
+  const [interviewRefreshKey, setInterviewRefreshKey] = useState(0);
   const resumeInputRef = useRef(null);
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -97,6 +103,8 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
     setResumeFile(null);
     setMatchState({ status: "idle", score: null, msg: "" });
     setDraftCandidateId("");
+    setRecommendationsRefreshKey(0);
+    setParseProfileApplied(false);
     if (resumeInputRef.current) resumeInputRef.current.value = "";
     setModal(true);
   };
@@ -146,13 +154,13 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
       }
       latest = stBody;
       const status = stBody?.status;
-      if (status === "DONE" || status === "FAILED") break;
+      if (status === "COMPLETED" || status === "FAILED") break;
       setMatchState({ status: "working", score: null, msg: `Parsing résumé… (${String(status || "PENDING")})` });
       // eslint-disable-next-line no-await-in-loop
       await sleep(delay);
       delay = Math.min(5000, Math.round(delay * 1.4));
     }
-    if (!latest || latest.status !== "DONE") {
+    if (!latest || latest.status !== "COMPLETED") {
       const msg = latest?.status === "FAILED" ? String(latest?.error || "Parse failed") : "Parse did not complete in time.";
       throw new Error(msg);
     }
@@ -172,6 +180,8 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
     if (!applyRes.ok) {
       throw new Error(applyBody?.message || applyBody?.error || `Apply parse failed (${applyRes.status})`);
     }
+    setParseProfileApplied(true);
+    setRecommendationsRefreshKey((k) => k + 1);
 
     // Score match / eligibility
     setMatchState({ status: "working", score: null, msg: "Computing match score…" });
@@ -373,6 +383,12 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
     }
   }, [deepLinkTarget, applicationQ, candidateQ, list, applicants, drillDownRows]);
 
+  useEffect(() => {
+    if (applicationQ) setInterviewPanelAppId(applicationQ);
+  }, [applicationQ]);
+
+  const timelineApplicationId = interviewPanelAppId || applicationQ || "";
+
   return (
     <div>
       {(stageQ || sourceQ || jobQ) && (
@@ -418,6 +434,16 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
         <Select value={fJob} onChange={setFJob} options={[{ value: "", label: "All jobs" }, ...jobs.map((j) => ({ value: j.id, label: j.title }))]} />
         <Select value={fStage} onChange={setFStage} options={[{ value: "", label: "All stages" }, ...STAGES.map((s) => ({ value: s, label: s }))]} />
       </div>
+      {timelineApplicationId ? (
+        <Card style={{ padding: "16px 18px", marginBottom: 16 }}>
+          <InterviewTimeline
+            applicationId={timelineApplicationId}
+            enabled
+            refreshKey={interviewRefreshKey}
+            compact={!applicationQ}
+          />
+        </Card>
+      ) : null}
       <div style={{ display: "grid", gap: 10 }}>
         {list.map((a) => {
           const m = STAGE_META[a.stage];
@@ -467,6 +493,16 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
                       Résumé
                     </Button>
                   )}
+                  <Button
+                    sm
+                    variant="ghost"
+                    onClick={() => {
+                      setInterviewPanelAppId((prev) => (prev === a.id ? "" : a.id));
+                      setInterviewRefreshKey((k) => k + 1);
+                    }}
+                  >
+                    {interviewPanelAppId === a.id ? "Hide interviews" : "Interviews"}
+                  </Button>
                   {allowEdit && <Button sm variant="ghost" onClick={() => openEdit(a)}>Edit</Button>}
                   {allowDelete && (
                     <Button
@@ -579,6 +615,20 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
                   Match: {typeof matchState.score.matchPercent === "number" ? `${matchState.score.matchPercent}%` : "—"} ·{" "}
                   {matchState.score.eligible ? "Eligible" : "Not eligible"}
                 </p>
+              ) : null}
+              {draftCandidateId && parseProfileApplied ? (
+                <RecommendedRolesPanel
+                  candidateId={draftCandidateId}
+                  enabled
+                  refreshKey={recommendationsRefreshKey}
+                  userRole={role}
+                  onApplied={async () => {
+                    if (typeof onRefresh === "function") await onRefresh();
+                    if (typeof window !== "undefined") {
+                      window.dispatchEvent(new CustomEvent(NOTIFICATIONS_REFRESH_EVENT));
+                    }
+                  }}
+                />
               ) : null}
             </div>
           ) : null}

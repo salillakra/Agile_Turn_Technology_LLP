@@ -5,6 +5,14 @@ import type {
   NotificationReferenceType,
   NotificationType,
 } from "@prisma/client";
+import {
+  buildCandidateStageUpdateSubject,
+  formatApplicationStageLabel,
+} from "@/src/lib/application-stage-labels";
+import { enqueueOfferSentEmail } from "@/src/lib/enqueue-offer-sent";
+import { enqueueEmailJob } from "@/src/lib/queues/email-queue";
+import { QueueEnqueueRateLimitedError } from "@/src/lib/queues/queue-enqueue-rate-limit";
+import { isRedisConfigured } from "@/src/lib/queues/redis";
 import { prisma } from "./prisma";
 import { shouldNotifyStageChangeInApp } from "@/src/lib/notification-stage-policy";
 import {
@@ -171,26 +179,6 @@ async function listJobAssignmentUserIds(jobId: string, excludeUserId?: string): 
   });
   const unique = [...new Set(rows.map((r) => r.userId))];
   return excludeUserId ? unique.filter((id) => id !== excludeUserId) : unique;
-}
-
-/** Maps `ApplicationStage` (Prisma enum string) to a short label for notification copy. */
-function formatApplicationStageLabel(stage: string): string {
-  const map: Record<string, string> = {
-    APPLIED: "Applied",
-    SCREENING: "Screening",
-    INTERVIEW: "Interview",
-    TECHNICAL: "Technical",
-    FINAL_ROUND: "Final round",
-    OFFER_SENT: "Offer sent",
-    HIRED: "Hired",
-    REJECTED: "Rejected",
-  };
-  const label = map[stage];
-  if (label) return label;
-  return stage
-    .split("_")
-    .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
-    .join(" ");
 }
 
 /**
@@ -369,23 +357,118 @@ export async function notifyAssignedInterviewersForInterviewStage(input: {
       )
     )
   );
+
+  if (!isRedisConfigured()) return;
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids }, email: { not: null } },
+    select: { id: true, email: true },
+  });
+
+  await Promise.all(
+    users.map(async (user) => {
+      const recipient = user.email?.trim();
+      if (!recipient) return;
+      try {
+        await enqueueEmailJob(
+          {
+            recipient,
+            subject: `Interview — ${input.candidateName}`,
+            template: "interview_notification",
+            data: {
+              applicationId: input.applicationId,
+              jobId: input.jobId,
+              jobTitle: input.jobTitle,
+              candidateName: input.candidateName,
+            },
+          },
+          {
+            jobId: `email:interview:${input.applicationId}:${user.id}`,
+          }
+        );
+      } catch (err) {
+        if (err instanceof QueueEnqueueRateLimitedError) {
+          console.warn(
+            "[notifications] interview email enqueue rate limited retryAfter=%ss",
+            err.retryAfterSeconds
+          );
+        } else {
+          console.error("[notifications] interview email enqueue failed", err);
+        }
+      }
+    })
+  );
 }
 
-export type OfferSentEmailPayload = {
+export type { OfferSentEmailPayload } from "@/src/lib/enqueue-offer-sent";
+
+export type CandidateStageUpdateEmailPayload = {
   candidateEmail: string;
   candidateName: string;
   applicationId: string;
   jobTitle: string;
+  fromStage: string;
+  toStage: string;
 };
 
 /**
- * Candidates are not `User` rows — no in-app notification. Reserved for transactional email (SendGrid, etc.).
+ * Enqueue candidate stage-update email (BullMQ `ats:email`, template `stage_update`).
+ * Does not send mail — the email worker delivers asynchronously.
+ * Skips when Redis is unset, recipient is empty, or `toStage` is `OFFER_SENT` (use `offer_sent`).
+ */
+export async function notifyCandidateStageChangeEmailDeferred(
+  payload: CandidateStageUpdateEmailPayload
+): Promise<void> {
+  const recipient = payload.candidateEmail?.trim();
+  if (!recipient || !isRedisConfigured()) return;
+  if (payload.toStage === "OFFER_SENT") return;
+
+  const oldStage = formatApplicationStageLabel(payload.fromStage);
+  const newStage = formatApplicationStageLabel(payload.toStage);
+  const subject = buildCandidateStageUpdateSubject(payload.jobTitle);
+
+  try {
+    const enqueueResult = await enqueueEmailJob(
+      {
+        recipient,
+        subject,
+        template: "stage_update",
+        data: {
+          candidateName: payload.candidateName,
+          jobTitle: payload.jobTitle,
+          oldStage,
+          newStage,
+          fromStage: payload.fromStage,
+          toStage: payload.toStage,
+          applicationId: payload.applicationId,
+        },
+      },
+      { jobId: `email:stage-update:${payload.applicationId}:${payload.toStage}` }
+    );
+    if (!enqueueResult.enqueued) return;
+  } catch (err) {
+    if (err instanceof QueueEnqueueRateLimitedError) {
+      console.warn(
+        "[notifications] candidate stage email enqueue rate limited retryAfter=%ss",
+        err.retryAfterSeconds
+      );
+    } else {
+      console.error("[notifications] candidate stage email enqueue failed", err);
+    }
+  }
+}
+
+/**
+ * Enqueue offer letter email (`offer_sent`). Prefer {@link scheduleOfferSentEmail} from API routes.
  */
 export async function notifyCandidateOfferSentEmailDeferred(
-  _payload: OfferSentEmailPayload
+  payload: import("@/src/lib/enqueue-offer-sent").OfferSentEmailPayload
 ): Promise<void> {
-  // Future: queue email to _payload.candidateEmail with offer details.
+  await enqueueOfferSentEmail(payload);
 }
+
+/** @deprecated Use {@link scheduleOfferSentEmail} from `@/src/lib/schedule-offer-sent-email`. */
+export { scheduleOfferSentEmail } from "@/src/lib/schedule-offer-sent-email";
 
 /**
  * In-app alert when an offer is recorded — same recipient policy as stage changes:

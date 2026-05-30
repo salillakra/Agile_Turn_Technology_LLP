@@ -4,6 +4,11 @@ import { apiError } from "@/src/lib/api-error-response";
 import { validateJobFields, validateJobMetaCommon } from "@/src/lib/job-validation";
 import { canDeleteJob, canSetJobStatusTo, canUpdateJob } from "@/src/lib/rbac";
 import { canAccessJobByScope } from "@/src/lib/rbac-scope";
+import { enqueueJobEmbeddingAfterJobChange } from "@/src/lib/job-embedding-enqueue";
+import { jobUpdateAffectsEmbedding } from "@/src/lib/job-semantic-text";
+import { invalidateJobCandidateScoringCaches } from "@/src/lib/ai/candidate-scoring-cache";
+import { invalidateJobRecommendedCandidatesCaches } from "@/src/lib/job-recommended-candidates-cache";
+import { countUniqueActiveApplicantsForJob } from "@/src/lib/candidate-identity";
 import { prisma } from "@/src/lib/prisma";
 import type { JobStatus } from "@prisma/client";
 import { Prisma } from "@prisma/client";
@@ -29,21 +34,19 @@ export async function GET(_request: Request, context: RouteContext) {
     where: { id },
     include: {
       creator: { select: { id: true, name: true, email: true } },
-      _count: { select: { applications: true } },
     },
   });
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
-  const applicantCount = job._count.applications;
+  const applicantCount = await countUniqueActiveApplicantsForJob(id);
   const hiredCount = await prisma.application.count({
-    where: { jobId: id, stage: "HIRED" },
+    where: { jobId: id, stage: "HIRED", withdrawnAt: null },
   });
   const hiringProgress =
     applicantCount > 0 ? Math.round((hiredCount / applicantCount) * 100) / 100 : 0;
 
-  const { _count, ...rest } = job;
   return NextResponse.json({
-    ...rest,
+    ...job,
     applicantCount,
     hiredCount,
     hiringProgress,
@@ -193,6 +196,18 @@ export async function PUT(request: Request, context: RouteContext) {
     where: { id },
     data,
   });
+
+  void invalidateJobRecommendedCandidatesCaches(updated.id);
+  void invalidateJobCandidateScoringCaches(updated.id);
+
+  if (jobUpdateAffectsEmbedding(data as Record<string, unknown>)) {
+    void enqueueJobEmbeddingAfterJobChange(updated.id, { reason: "updated" }).catch(
+      (e) => {
+        console.error("[PUT /api/jobs/[id]] embedding enqueue failed:", e);
+      }
+    );
+  }
+
   return NextResponse.json(updated);
 }
 

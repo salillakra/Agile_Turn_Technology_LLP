@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { apiError } from "@/src/lib/api-error-response";
 import { requireApiAuth } from "@/src/lib/api-auth";
 import { canUploadResume } from "@/src/lib/rbac";
+import { consumeApiRateLimit, rateLimitedResponse, readRateLimitConfig } from "@/src/lib/api-rate-limit";
 import {
   ensureResumeUploadDir,
   getResumeUploadDir,
@@ -32,6 +33,28 @@ export const runtime = "nodejs";
 export async function POST(request: Request): Promise<NextResponse> {
   const auth = await requireApiAuth(canUploadResume);
   if (auth instanceof NextResponse) return auth;
+  const userId = typeof auth.session.user?.id === "string" ? auth.session.user.id : "";
+  const cfg = readRateLimitConfig({
+    maxEnv: "RESUME_UPLOAD_RATE_MAX",
+    windowMsEnv: "RESUME_UPLOAD_RATE_WINDOW_MS",
+    defaultMax: 5,
+    defaultWindowMs: 60_000,
+  });
+  const limited = await consumeApiRateLimit({
+    prefix: "recruitment:resume:ratelimit:v1:",
+    scope: "upload",
+    identity: userId,
+    max: cfg.max,
+    windowMs: cfg.windowMs,
+  });
+  if (limited.ok === false) {
+    return rateLimitedResponse({
+      message: "Too many resume uploads. Try again later.",
+      retryAfterSeconds: limited.retryAfterSeconds,
+      limit: cfg.max,
+      windowSeconds: Math.round(cfg.windowMs / 1000),
+    });
+  }
 
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("multipart/form-data")) {

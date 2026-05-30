@@ -47,7 +47,21 @@ enum CandidateSource {
 // Async résumé parsing pipeline: enqueue after upload; worker fills resultJson or error.
 enum ResumeParseJobStatus {
   PENDING
-  DONE
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// Semantic embedding generation queue mirror (`embeddingQueue` BullMQ jobs).
+enum EmbeddingJobEntityType {
+  JOB
+  CANDIDATE
+}
+
+enum EmbeddingJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
   FAILED
 }
 
@@ -65,6 +79,38 @@ enum NotificationPriority {
   LOW
   MEDIUM
   HIGH
+}
+
+// Transactional email delivery lifecycle (`EmailLog` rows; mirrored from BullMQ worker).
+enum EmailDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// Interview scheduling lifecycle for application interview rounds.
+enum InterviewStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
+  NO_SHOW
+}
+
+// Panel role for an interviewer assigned to an interview round.
+enum InterviewInterviewerRole {
+  TECHNICAL_INTERVIEWER
+  HIRING_MANAGER
+  HR_INTERVIEWER
+}
+
+// Recommendation outcome from an interview round's feedback.
+enum InterviewRecommendation {
+  STRONG_HIRE
+  HIRE
+  NEUTRAL
+  NO_HIRE
+  STRONG_NO_HIRE
 }
 
 // What `reference_id` points to for in-app navigation (e.g. `/applicants?applicationId=` vs `?candidateId=`).
@@ -92,12 +138,18 @@ model User {
   notes           Note[]
   candidateNotes  CandidateNote[]
   activityLogs    ActivityLog[]
+  createdInterviews    Interview[]            @relation("InterviewCreatedBy")
+  interviewAssignments InterviewInterviewer[]
+  interviewFeedbacks   InterviewFeedback[]    @relation("InterviewFeedbackReviewer")
+  interviewScheduleChanges InterviewScheduleChange[] @relation("InterviewScheduleChangedBy")
+  interviewCancellations   InterviewCancellation[]   @relation("InterviewCancelledBy")
   createdJobs     Job[]
   assignedJobLinks JobAssignment[]
   reportExportLogs ReportExportLog[]
   notifications    Notification[]
   /// Extended fields editable by the user (phone, bio, etc.). Created at registration or on first profile access.
   profile          UserProfile?
+  emailPreference  EmailPreference?
 
   @@map("users")
 }
@@ -202,6 +254,8 @@ model VerificationToken {
 // Field rationale: id — unique reference; title — role name; department — team/org; location — where (remote/office);
 // yearsOfExperience — filter/match candidates; description — full JD; additionalComments — internal notes;
 // status — OPEN/PAUSED/CLOSED for pipeline; createdAt — audit; createdBy — ownership and audit.
+// requiredSkills / preferredSkills — first-class arrays for job–candidate recommendation (see job-recommendation module).
+// jobMeta.requiredSkills / jobMeta.preferredSkills remain until APIs are migrated to read/write these columns.
 model Job {
   id                   String        @id @default(cuid())
   title                String
@@ -211,6 +265,15 @@ model Job {
   description          String?       @db.Text
   additionalComments   String?       @map("additional_comments") @db.Text
   jobMeta              Json?         @map("job_meta")
+  /// Primary matching signal: candidate should meet most/all for a strong match; drives core matchScore.
+  requiredSkills       String[]      @default([]) @map("required_skills")
+  /// Secondary signal: extra points when present; absence does not disqualify a candidate.
+  preferredSkills      String[]      @default([]) @map("preferred_skills")
+  /// Cached semantic embedding from AI service (e.g. `{ "model": "all-MiniLM-L6-v2", "vector": number[] }`). Null until generated.
+  embedding            Json?         @map("embedding")
+  /// pgvector embedding for similarity search (vector(384)); written alongside `embedding`.
+  embeddingVector      Unsupported("vector")? @map("embedding_vector")
+  embeddingUpdatedAt   DateTime?     @map("embedding_updated_at")
   status               JobStatus    @default(OPEN)
   createdAt            DateTime     @default(now()) @map("created_at")
   createdBy            String        @map("created_by")
@@ -276,8 +339,10 @@ model ReportExportLog {
 //   resumeFileName — original upload file name for display/download (e.g. "Jane_Doe_CV.pdf").
 //   candidateSource — channel attribution (LINKEDIN, REFERRAL, etc.) for funnel analytics.
 //   rating — overall or default fit score.
+//   skills / normalizedSkills — recommendation arrays (raw parse vs canonical tokens for matching).
+//   summary / companies / education / certifications — structured NLP profile from résumé parse (normalized).
 //   createdAt, updatedAt — audit.
-// Relations: applications (per-job pipeline), notes (internal comments), candidateSkills (skills list), candidateTags, activityLogs.
+// Relations: applications (per-job pipeline), notes (internal comments), candidateSkills (legacy row-per-skill; kept until APIs migrate), candidateTags, activityLogs.
 model Candidate {
   id                    String            @id @default(cuid())
   candidateName         String            @map("candidate_name")
@@ -302,6 +367,23 @@ model Candidate {
   resumeFileName       String?           @map("resume_file_name")
   candidateSource      CandidateSource?  @map("candidate_source")
   rating               Int?
+  /// Raw skill strings from résumé parse or manual entry (display + audit). e.g. "React.js", "Node JS".
+  skills                String[]          @default([]) @map("skills")
+  /// Canonical tokens for matching (same rules as `normalizeSkill` in resume-job-match). e.g. "react", "node js".
+  normalizedSkills      String[]          @default([]) @map("normalized_skills")
+  /// NLP structured one-liner (POST /parse-resume `summary`, rule-based).
+  summary               String?           @db.Text
+  /// Previous employers from résumé parse (deduped display names).
+  companies             String[]          @default([])
+  /// Normalized education rows: `[{ degree, college, graduationYear }]`.
+  education             Json?
+  /// Professional certifications from résumé parse (deduped labels).
+  certifications        String[]          @default([])
+  /// Cached semantic embedding from AI service (e.g. `{ "model": "all-MiniLM-L6-v2", "vector": number[] }`). Null until generated.
+  embedding            Json?             @map("embedding")
+  /// pgvector embedding for similarity search (vector(384)); written alongside `embedding`.
+  embeddingVector      Unsupported("vector")? @map("embedding_vector")
+  embeddingUpdatedAt   DateTime?         @map("embedding_updated_at")
   createdAt            DateTime          @default(now()) @map("created_at")
   updatedAt            DateTime          @updatedAt
   applications         Application[]
@@ -311,6 +393,7 @@ model Candidate {
   candidateSkills      CandidateSkill[]
   activityLogs         ActivityLog[]
   resumeParseJobs      ResumeParseJob[]
+  emailPreference      EmailPreference?
 
   @@map("candidates")
 }
@@ -324,6 +407,11 @@ model ResumeParseJob {
   /// Parsed payload: see `ResumeParseResult` in `src/lib/resume-parse-result.ts` (name, skills, experience).
   resultJson  Json?                @map("result_json")
   error       String?              @db.Text
+  bullmqJobId String?              @map("bullmq_job_id")
+  attemptCount Int                 @default(0) @map("attempt_count")
+  startedAt   DateTime?            @map("started_at")
+  completedAt DateTime?            @map("completed_at")
+  failedAt    DateTime?            @map("failed_at")
   createdAt   DateTime             @default(now()) @map("created_at")
   updatedAt   DateTime             @updatedAt @map("updated_at")
   candidate   Candidate            @relation(fields: [candidateId], references: [id], onDelete: Cascade)
@@ -331,6 +419,26 @@ model ResumeParseJob {
   @@index([candidateId])
   @@index([status])
   @@map("resume_parse_jobs")
+}
+
+/// Tracks `embeddingQueue` work per job or candidate (observability + debugging).
+model EmbeddingJob {
+  id           String               @id @default(cuid())
+  entityType   EmbeddingJobEntityType @map("entity_type")
+  entityId     String               @map("entity_id")
+  status       EmbeddingJobStatus   @default(PENDING)
+  bullmqJobId  String?              @map("bullmq_job_id")
+  error        String?              @db.Text
+  attemptCount Int                  @default(0) @map("attempt_count")
+  startedAt    DateTime?            @map("started_at")
+  completedAt  DateTime?            @map("completed_at")
+  failedAt     DateTime?            @map("failed_at")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @updatedAt @map("updated_at")
+
+  @@unique([entityType, entityId])
+  @@index([status])
+  @@map("embedding_jobs")
 }
 
 // Links a candidate to a job in the recruitment pipeline; one row per candidate–job pair.
@@ -358,6 +466,7 @@ model Application {
   candidate         Candidate        @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   job               Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
   activityLogs      ActivityLog[]
+  interviews        Interview[]
 
   @@index([candidateId])
   @@index([jobId])
@@ -367,6 +476,114 @@ model Application {
   @@index([withdrawnAt])
   @@unique([candidateId, jobId])
   @@map("applications")
+}
+
+// One scheduled interview round for an application (Application → many Interviews).
+model Interview {
+  id              String         @id @default(cuid())
+  applicationId   String         @map("application_id")
+  title           String
+  description     String?        @db.Text
+  interviewType   String         @map("interview_type")
+  scheduledAt     DateTime       @map("scheduled_at")
+  durationMinutes Int            @map("duration_minutes")
+  meetingLink     String?        @map("meeting_link")
+  status          InterviewStatus @default(SCHEDULED)
+  notes           String?        @db.Text
+  createdBy       String         @map("created_by")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  application     Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  creator         User           @relation("InterviewCreatedBy", fields: [createdBy], references: [id], onDelete: Cascade)
+  interviewers    InterviewInterviewer[]
+  feedback        InterviewFeedback[]
+  scheduleHistory InterviewScheduleChange[]
+  cancellation    InterviewCancellation?
+
+  @@index([applicationId])
+  @@index([scheduledAt])
+  @@index([status])
+  @@map("interviews")
+}
+
+// Immutable cancellation record (soft cancel); interview row is retained with status CANCELLED.
+model InterviewCancellation {
+  id              String          @id @default(cuid())
+  interviewId     String          @unique @map("interview_id")
+  reason          String          @db.Text
+  previousStatus  InterviewStatus @map("previous_status")
+  scheduledAt     DateTime        @map("scheduled_at")
+  durationMinutes Int             @map("duration_minutes")
+  cancelledBy     String          @map("cancelled_by")
+  cancelledAt     DateTime        @default(now()) @map("cancelled_at")
+
+  interview       Interview       @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  canceller       User            @relation("InterviewCancelledBy", fields: [cancelledBy], references: [id], onDelete: Cascade)
+
+  @@index([cancelledBy])
+  @@index([cancelledAt])
+  @@map("interview_cancellations")
+}
+
+// Immutable audit trail for schedule changes (reschedules); do not overwrite scheduling history silently.
+model InterviewScheduleChange {
+  id                 String   @id @default(cuid())
+  interviewId         String   @map("interview_id")
+  fromScheduledAt     DateTime @map("from_scheduled_at")
+  toScheduledAt       DateTime @map("to_scheduled_at")
+  fromDurationMinutes Int      @map("from_duration_minutes")
+  toDurationMinutes   Int      @map("to_duration_minutes")
+  changedBy           String   @map("changed_by")
+  changedAt           DateTime @default(now()) @map("changed_at")
+
+  interview           Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  changer             User      @relation("InterviewScheduleChangedBy", fields: [changedBy], references: [id], onDelete: Cascade)
+
+  @@index([interviewId])
+  @@index([changedBy])
+  @@index([changedAt])
+  @@map("interview_schedule_changes")
+}
+
+// Many-to-many link: Interview ↔ User with a panel role (supports multiple interviewers per interview).
+model InterviewInterviewer {
+  id          String                   @id @default(cuid())
+  interviewId String                   @map("interview_id")
+  userId      String                   @map("user_id")
+  role        InterviewInterviewerRole
+  createdAt   DateTime                 @default(now()) @map("created_at")
+  updatedAt   DateTime                 @updatedAt @map("updated_at")
+
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([interviewId, userId])
+  @@index([interviewId])
+  @@index([userId])
+  @@index([interviewId, role])
+  @@map("interview_interviewers")
+}
+
+// Interview feedback linked to an interview; supports multiple feedback entries (e.g., panel interviews).
+model InterviewFeedback {
+  id          String   @id @default(cuid())
+  interviewId String   @map("interview_id")
+  reviewerId  String   @map("reviewer_id")
+  rating      Int?
+  strengths   String?  @db.Text
+  weaknesses  String?  @db.Text
+  recommendation InterviewRecommendation
+  notes       String?  @db.Text
+  submittedAt DateTime @default(now()) @map("submitted_at")
+
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  reviewer    User      @relation("InterviewFeedbackReviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([interviewId])
+  @@index([reviewerId])
+  @@unique([interviewId, reviewerId])
+  @@map("interview_feedback")
 }
 
 model Tag {
@@ -429,12 +646,22 @@ model Note {
 
 // action examples: APPLICATION_CREATED, STAGE_CHANGE, FEEDBACK_ADDED, NOTES_UPDATED,
 // APPLICATION_DELETED, RESUME_PARSE_STARTED, RESUME_PARSE_COMPLETED, RESUME_PARSE_FAILED,
-// RESUME_PARSE_APPLIED_TO_CANDIDATE, NOTIFICATION_SENT (e.g. in-app STAGE_CHANGED alerts to stakeholders).
+// RESUME_PARSE_APPLIED_TO_CANDIDATE, NOTIFICATION_SENT (e.g. in-app STAGE_CHANGED alerts to stakeholders),
+// EMAIL_SENT, EMAIL_FAILED, INTERVIEW_REMINDER_SENT (outbound email worker audit),
+// RECOMMENDATION_GENERATED, RECOMMENDATION_ACCEPTED (candidate→job recommendations),
+// CANDIDATE_RECOMMENDED, CANDIDATE_SHORTLISTED (job→candidate recommendations),
+// AI_SEARCH_PERFORMED, CANDIDATE_AI_MATCHED (recruiter semantic search observability),
+// RECRUITER_AI_SEARCH_EXECUTED, RECRUITER_AI_SEARCH_RESULT_CLICKED, RECRUITER_AI_SEARCH_SHORTLISTED,
+// INTERVIEW_SCHEDULED, INTERVIEW_RESCHEDULED, INTERVIEW_CANCELLED, FEEDBACK_SUBMITTED (interview panel).
 model ActivityLog {
   id            String   @id @default(cuid())
   applicationId String?  @map("application_id")
   candidateId   String?  @map("candidate_id")
   userId        String?  @map("user_id")
+  /// Interview round id (logical ref to `Interview.id`; indexed for audit queries).
+  interviewId   String?  @map("interview_id")
+  /// Subject interviewer user id when applicable (e.g. feedback reviewer).
+  interviewerId String?  @map("interviewer_id")
   action        String
   details       String?
   createdAt     DateTime @default(now())
@@ -444,6 +671,54 @@ model ActivityLog {
 
   @@index([applicationId])
   @@index([applicationId, createdAt])
+  @@index([interviewId])
+  @@index([interviewerId])
   @@index([createdAt])
   @@map("activity_logs")
+}
+
+// Outbound transactional email audit trail (enqueue → worker → SMTP).
+model EmailLog {
+  id            String               @id @default(cuid())
+  recipient     String
+  subject       String
+  template      String
+  status        EmailDeliveryStatus  @default(PENDING)
+  error         String?              @db.Text
+  sentAt        DateTime?            @map("sent_at")
+  messageId     String?              @map("message_id")
+  bullmqJobId   String?              @unique @map("bullmq_job_id")
+  applicationId String?              @map("application_id")
+  /// Worker attempts observed (1 = first try); used for retry metrics.
+  attemptCount  Int                  @default(1) @map("attempt_count")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+
+  @@index([recipient])
+  @@index([status])
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@index([template, createdAt])
+  @@map("email_logs")
+}
+
+// Per-inbox email channel opt-in/out (candidates by email; staff optionally linked via `userId`).
+model EmailPreference {
+  id                 String   @id @default(cuid())
+  /// Normalized delivery address — primary lookup at enqueue time.
+  email              String   @unique
+  userId             String?  @unique @map("user_id")
+  candidateId        String?  @unique @map("candidate_id")
+  /// Pipeline stage update emails (`stage_update`, `stage_changed`).
+  stageUpdates       Boolean  @default(true) @map("stage_updates")
+  /// Delayed reminders (`interview_reminder`).
+  interviewReminders Boolean  @default(true) @map("interview_reminders")
+  /// Promotional / newsletter sends (`marketing_*` templates). Opt-in default false.
+  marketingEmails    Boolean  @default(false) @map("marketing_emails")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  user               User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  candidate          Candidate? @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@map("email_preferences")
 }

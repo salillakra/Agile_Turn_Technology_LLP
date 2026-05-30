@@ -7,6 +7,8 @@ import { canEditCandidate, canReadResume, canUploadResume } from "@/src/lib/rbac
 import Input from "@/components/ui/Input";
 import Textarea from "@/components/ui/Textarea";
 import Field from "@/components/ui/Field";
+import RecommendedRolesPanel from "@/components/RecommendedRolesPanel";
+import { NOTIFICATIONS_REFRESH_EVENT } from "@/components/NotificationBell";
 
 /**
  * @param {object} props
@@ -33,6 +35,7 @@ export default function ResumeCandidateModal({ open, onClose, candidateId, userR
   const [applySummary, setApplySummary] = useState("");
   const [applyBusy, setApplyBusy] = useState(false);
   const [applyOk, setApplyOk] = useState(null);
+  const [recommendationsRefreshKey, setRecommendationsRefreshKey] = useState(0);
   const [showRawJson, setShowRawJson] = useState(false);
 
   const load = useCallback(async () => {
@@ -173,7 +176,7 @@ export default function ResumeCandidateModal({ open, onClose, candidateId, userR
 
   useEffect(() => {
     if (!open || !candidateId) return;
-    if (parseStatus?.status !== "PENDING") return;
+    if (parseStatus?.status !== "PENDING" && parseStatus?.status !== "PROCESSING") return;
     const t = setInterval(() => {
       void refreshParseStatus();
     }, 2500);
@@ -182,14 +185,15 @@ export default function ResumeCandidateModal({ open, onClose, candidateId, userR
 
   useEffect(() => {
     const r = parseStatus?.result;
-    if (parseStatus?.status !== "DONE" || r == null || typeof r !== "object") return;
+    if (parseStatus?.status !== "COMPLETED" || r == null || typeof r !== "object") return;
     setApplyName(typeof r.name === "string" ? r.name : "");
     setApplySkills(Array.isArray(r.skills) ? r.skills.join(", ") : "");
     const y = r.experience?.years;
     setApplyYears(typeof y === "number" && Number.isFinite(y) ? String(y) : "0");
     setApplySummary(typeof r.experience?.summary === "string" ? r.experience.summary : "");
     setApplyOk(null);
-  }, [parseStatus?.status, parseStatus?.result]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parseStatus?.resumeParseJobId, parseStatus?.status]);
 
   async function handleApplyParsedToProfile() {
     if (!candidateId || !parseStatus?.resumeParseJobId) return;
@@ -224,6 +228,7 @@ export default function ResumeCandidateModal({ open, onClose, candidateId, userR
       }
       setCandidate(body);
       setApplyOk("Candidate profile updated from this parse.");
+      setRecommendationsRefreshKey((k) => k + 1);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Apply failed");
     } finally {
@@ -232,7 +237,15 @@ export default function ResumeCandidateModal({ open, onClose, candidateId, userR
   }
 
   const parseLabel =
-    parseStatus?.status == null ? "—" : parseStatus.status === "DONE" ? "Done" : parseStatus.status === "FAILED" ? "Failed" : "Pending";
+    parseStatus?.status == null
+      ? "—"
+      : parseStatus.status === "COMPLETED"
+        ? "Done"
+        : parseStatus.status === "FAILED"
+          ? "Failed"
+          : parseStatus.status === "PROCESSING"
+            ? "Processing"
+            : "Pending";
 
   return (
     <Modal
@@ -328,7 +341,7 @@ export default function ResumeCandidateModal({ open, onClose, candidateId, userR
               <div>
                 <strong style={{ color: "var(--text-heading-soft)" }}>Parse status:</strong> {parseLabel}
               </div>
-              {parseStatus?.status === "PENDING" ? (
+              {parseStatus?.status === "PENDING" || parseStatus?.status === "PROCESSING" ? (
                 <p style={{ margin: "8px 0 0", fontSize: 11, lineHeight: 1.45, color: "var(--text-muted)" }}>
                   Jobs stay pending until the parse worker runs (e.g. scheduled cron every ~5 min, or manual
                   call to <code style={{ color: "var(--text-body)" }}>/api/cron/process-parse-jobs</code> with{" "}
@@ -338,7 +351,7 @@ export default function ResumeCandidateModal({ open, onClose, candidateId, userR
               {parseStatus?.error ? (
                 <pre style={{ margin: "8px 0 0", whiteSpace: "pre-wrap", color: "#FCA5A5" }}>{parseStatus.error}</pre>
               ) : null}
-              {parseStatus?.status === "DONE" && parseStatus?.result != null ? (
+              {parseStatus?.status === "COMPLETED" && parseStatus?.result != null ? (
                 <div style={{ marginTop: 8 }}>
                   <button
                     type="button"
@@ -371,7 +384,7 @@ export default function ResumeCandidateModal({ open, onClose, candidateId, userR
                   ) : null}
                 </div>
               ) : null}
-              {parseStatus?.status === "DONE" && parseStatus?.result != null && canApplyParse ? (
+              {parseStatus?.status === "COMPLETED" && parseStatus?.result != null && canApplyParse ? (
                 <div
                   style={{
                     marginTop: 14,
@@ -411,15 +424,18 @@ export default function ResumeCandidateModal({ open, onClose, candidateId, userR
                       <Textarea
                         value={applySkills}
                         onChange={(e) => setApplySkills(e.target.value)}
-                        rows={2}
-                        placeholder="e.g. TypeScript, PostgreSQL"
+                        rows={3}
+                        maxLength={18000}
+                        placeholder="e.g. TypeScript, PostgreSQL (up to 60 skills, 300 chars each)"
                       />
                     </Field>
                     <Field label="Experience summary">
                       <Textarea
                         value={applySummary}
                         onChange={(e) => setApplySummary(e.target.value)}
-                        rows={3}
+                        rows={6}
+                        maxLength={1200}
+                        placeholder="Ends with a full stop when saved (max 1200 characters)"
                       />
                     </Field>
                   </div>
@@ -432,6 +448,25 @@ export default function ResumeCandidateModal({ open, onClose, candidateId, userR
                     </Button>
                   </div>
                 </div>
+              ) : null}
+
+              {parseStatus?.status === "COMPLETED" && canApplyParse && !applyOk && recommendationsRefreshKey === 0 ? (
+                <p style={{ margin: "12px 0 0", fontSize: 11, lineHeight: 1.5, color: "var(--text-muted)" }}>
+                  After you confirm &amp; apply the parsed profile, recommended open roles will appear here.
+                </p>
+              ) : null}
+              {parseStatus?.status === "COMPLETED" && (applyOk || recommendationsRefreshKey > 0) ? (
+                <RecommendedRolesPanel
+                  candidateId={candidateId}
+                  enabled
+                  refreshKey={recommendationsRefreshKey}
+                  userRole={userRole}
+                  onApplied={() => {
+                    if (typeof window !== "undefined") {
+                      window.dispatchEvent(new CustomEvent(NOTIFICATIONS_REFRESH_EVENT));
+                    }
+                  }}
+                />
               ) : null}
             </div>
           </div>

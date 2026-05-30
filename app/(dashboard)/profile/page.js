@@ -8,6 +8,7 @@ import Input from "@/components/ui/Input";
 import Field from "@/components/ui/Field";
 import ProfileCard from "@/components/profile/ProfileCard";
 import EditProfileForm from "@/components/profile/EditProfileForm";
+import EmailPreferencesCard from "@/components/profile/EmailPreferencesCard";
 import { useProfile } from "@/hooks/useProfile";
 import { T } from "@/lib/helpers";
 
@@ -273,7 +274,10 @@ export default function ProfilePage() {
 
             {tab === "email" ? (
               <motion.div key="email" {...panelMotion}>
-                <EditProfileForm profile={profile} isAdmin={isAdmin} variant="email" onSave={updateProfile} />
+                <div className="grid gap-6">
+                  <EditProfileForm profile={profile} isAdmin={isAdmin} variant="email" onSave={updateProfile} />
+                  <EmailPreferencesCard />
+                </div>
               </motion.div>
             ) : null}
 

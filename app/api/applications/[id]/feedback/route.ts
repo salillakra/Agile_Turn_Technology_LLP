@@ -10,13 +10,22 @@ import {
   buildFeedbackAddedDetails,
   serializeActivityLogDetails,
 } from "@/src/lib/activity-log-details";
+import { clearInterviewReminderEmailsBestEffort } from "@/src/lib/enqueue-interview-reminder";
+import { clearInterviewReminderJobs } from "@/src/lib/interview-reminder-integration";
+import { scheduleInterviewScheduledCommunications } from "@/src/lib/interview-email-orchestration";
+import { scheduleInterviewScheduledEmail } from "@/src/lib/schedule-interview-scheduled-email";
+import { scheduleInterviewRemindersAfterInterviewSet } from "@/src/lib/schedule-interview-reminders";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 const MIN_RATING = 1;
 const MAX_RATING = 5;
 
-/** PATCH /api/applications/[id]/feedback — add or update interview feedback (rating 1–5, notes, optional interviewDate). Creates ActivityLog FEEDBACK_ADDED. ADMIN and RECRUITER. */
+/**
+ * PATCH /api/applications/[id]/feedback — add or update interview feedback (rating 1–5, notes, optional interviewDate).
+ * Optional `meetingLink`, `interviewer`, `timeZone` for interview emails.
+ * Schedules delayed 24h + 1h reminders (cancelled automatically when `interviewDate` is cleared or changed).
+ */
 export async function PATCH(request: Request, context: RouteContext) {
   const auth = await requireApiAuth(canEditCandidate);
   if (auth instanceof NextResponse) return auth;
@@ -132,6 +141,65 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     return refreshed;
   });
+
+  if (data.interviewDate !== undefined) {
+    const activeInterview = await prisma.interview.findFirst({
+      where: {
+        applicationId: id,
+        status: { in: ["SCHEDULED", "RESCHEDULED"] },
+      },
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true,
+        interviewers: { select: { userId: true } },
+      },
+    });
+
+    if (data.interviewDate === null) {
+      clearInterviewReminderEmailsBestEffort(id);
+      if (activeInterview) {
+        void clearInterviewReminderJobs(
+          activeInterview.id,
+          activeInterview.interviewers.map((row) => row.userId)
+        );
+      }
+    } else {
+      const recipient = updated.candidate?.email?.trim();
+      const meetingLink =
+        typeof body.meetingLink === "string" ? body.meetingLink.trim() : "";
+      const interviewer =
+        typeof body.interviewer === "string" ? body.interviewer.trim() : "";
+      const timeZone =
+        typeof body.timeZone === "string" ? body.timeZone.trim() : undefined;
+
+      if (activeInterview) {
+        clearInterviewReminderEmailsBestEffort(id);
+        scheduleInterviewScheduledCommunications(activeInterview.id);
+      } else if (recipient) {
+        scheduleInterviewScheduledEmail({
+          applicationId: id,
+          jobId: updated.jobId,
+          recipient,
+          candidateName: updated.candidate.candidateName,
+          jobTitle: updated.job.title,
+          interviewDate: data.interviewDate,
+          meetingLink: meetingLink || undefined,
+          interviewer: interviewer || undefined,
+          timeZone,
+        });
+        scheduleInterviewRemindersAfterInterviewSet({
+          applicationId: id,
+          recipient,
+          candidateName: updated.candidate.candidateName,
+          jobTitle: updated.job.title,
+          interviewDate: data.interviewDate,
+          meetingLink: meetingLink || undefined,
+          interviewer: interviewer || undefined,
+          timeZone,
+        });
+      }
+    }
+  }
 
   return NextResponse.json(updated);
 }

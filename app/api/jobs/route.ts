@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireApiAuth } from "@/src/lib/api-auth";
-import {
-  validateJobFields,
-  validateJobMetaCommon,
-  validateJobMetaForCreate,
-} from "@/src/lib/job-validation";
+import { validateJobCreatePayload } from "@/src/lib/job-validation";
 import { canCreateJob } from "@/src/lib/rbac";
 import { buildJobVisibilityWhere } from "@/src/lib/rbac-scope";
+import { countUniqueActiveApplicantsByJobIds } from "@/src/lib/candidate-identity";
+import { enqueueJobEmbeddingAfterJobChange } from "@/src/lib/job-embedding-enqueue";
 import { prisma } from "@/src/lib/prisma";
 import { computeJobHealthScore } from "@/src/lib/job-health-score";
 import type { JobStatus } from "@prisma/client";
@@ -80,14 +78,16 @@ export async function GET(request: Request) {
   ]);
 
   const jobIds = jobs.map((j) => j.id);
-  const stageAgg =
+  const [uniqueApplicantCounts, stageAgg] = await Promise.all([
+    countUniqueActiveApplicantsByJobIds(jobIds),
     jobIds.length > 0
       ? await prisma.application.groupBy({
           by: ["jobId", "stage"],
           where: { jobId: { in: jobIds }, withdrawnAt: null },
           _count: { id: true },
         })
-      : [];
+      : Promise.resolve([]),
+  ]);
 
   type JobPipelineStats = { pipelineSize: number; hiredCount: number; offerReach: number };
   const statsByJob = new Map<string, JobPipelineStats>();
@@ -97,7 +97,6 @@ export async function GET(request: Request) {
       hiredCount: 0,
       offerReach: 0,
     };
-    cur.pipelineSize += row._count.id;
     if (row.stage === "HIRED") cur.hiredCount += row._count.id;
     if (row.stage === "OFFER_SENT" || row.stage === "HIRED") cur.offerReach += row._count.id;
     statsByJob.set(row.jobId, cur);
@@ -105,7 +104,8 @@ export async function GET(request: Request) {
 
   const data = jobs.map((job) => {
     const s = statsByJob.get(job.id) ?? { pipelineSize: 0, hiredCount: 0, offerReach: 0 };
-    const applicantCount = s.pipelineSize;
+    const applicantCount = uniqueApplicantCounts.get(job.id) ?? 0;
+    const pipelineSize = applicantCount;
     const hiredCount = s.hiredCount;
     const hiringProgress =
       applicantCount > 0 ? Math.round((hiredCount / applicantCount) * 100) / 100 : 0;
@@ -116,7 +116,7 @@ export async function GET(request: Request) {
     );
     const healthScore = computeJobHealthScore({
       ageDaysOpen,
-      pipelineSize: applicantCount,
+      pipelineSize,
       conversionRate,
       offerRate,
     });
@@ -150,18 +150,7 @@ export async function POST(request: Request) {
   const title = typeof body?.title === "string" ? body.title.trim() : "";
   const department = typeof body?.department === "string" ? body.department.trim() : "";
   const location = typeof body?.location === "string" ? body.location.trim() : "";
-  if (!title || !department || !location) {
-    return NextResponse.json(
-      { error: "title, department, and location are required" },
-      { status: 400 }
-    );
-  }
-
   const description = typeof body.description === "string" ? body.description.trim() || null : null;
-  const validationError = validateJobFields({ title, department, location, description });
-  if (validationError) {
-    return NextResponse.json(validationError, { status: 400 });
-  }
 
   const userId = session.user?.id;
   if (!userId || typeof userId !== "string") {
@@ -252,10 +241,24 @@ export async function POST(request: Request) {
     allowReferrals,
     tags,
   };
-  const metaValidationError = validateJobMetaForCreate(jobMeta);
-  if (metaValidationError) {
-    return NextResponse.json(metaValidationError, { status: 400 });
+  const createValidationError = validateJobCreatePayload({
+    title,
+    department,
+    location,
+    jobMeta,
+  });
+  if (createValidationError) {
+    return NextResponse.json(createValidationError, { status: 400 });
   }
+
+  const descriptionForDb =
+    description?.trim() || jobMeta.roleSummary?.trim() || null;
+  const yearsOfExperienceColumn =
+    jobMeta.minimumExperienceYears != null && Number.isInteger(jobMeta.minimumExperienceYears)
+      ? jobMeta.minimumExperienceYears
+      : Number.isInteger(yearsOfExperience)
+        ? yearsOfExperience
+        : undefined;
   if (hiringManagerIds.length > 0) {
     const hmCount = await prisma.user.count({
       where: { id: { in: hiringManagerIds }, role: "HIRING_MANAGER" },
@@ -276,10 +279,12 @@ export async function POST(request: Request) {
           title,
           department,
           location,
-          yearsOfExperience: Number.isInteger(yearsOfExperience) ? yearsOfExperience : undefined,
-          description,
+          yearsOfExperience: yearsOfExperienceColumn,
+          description: descriptionForDb,
           additionalComments,
           jobMeta: jobMeta as Prisma.InputJsonValue,
+          requiredSkills,
+          preferredSkills,
           status,
           createdBy: creatorId,
         },
@@ -311,5 +316,9 @@ export async function POST(request: Request) {
     }
     throw error;
   }
+
+  void enqueueJobEmbeddingAfterJobChange(job.id, { reason: "created" }).catch((e) => {
+    console.error("[POST /api/jobs] embedding enqueue failed:", e);
+  });
   return NextResponse.json(job, { status: 201 });
 }

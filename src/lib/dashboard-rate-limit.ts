@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import Redis from "ioredis";
+import { getSharedRedisClient } from "@/src/lib/redis-connection";
 
 /** Max dashboard API GETs per user per sliding window (aligned with common per-minute quotas). */
 export const DASHBOARD_RATE_LIMIT_MAX = 60;
@@ -14,40 +14,8 @@ type ConsumeResult =
 const REDIS_KEY_PREFIX = "recruitment:dashboard:ratelimit:v1:";
 const buckets = new Map<string, number[]>();
 
-let redisClient: Redis | null = null;
-let redisDisabledUntil = 0;
-const REDIS_BACKOFF_MS = 30_000;
-
-function redisUrl(): string | undefined {
-  return process.env.REDIS_URL?.trim() || undefined;
-}
-
-function getRedisClient(): Redis | null {
-  const url = redisUrl();
-  if (!url) return null;
-  if (Date.now() < redisDisabledUntil) return null;
-  if (redisClient) return redisClient;
-  try {
-    const client = new Redis(url, {
-      maxRetriesPerRequest: 2,
-      enableReadyCheck: true,
-      lazyConnect: false,
-    });
-    client.on("error", () => {
-      redisDisabledUntil = Date.now() + REDIS_BACKOFF_MS;
-      try {
-        void redisClient?.quit();
-      } catch {
-        /* ignore */
-      }
-      redisClient = null;
-    });
-    redisClient = client;
-    return client;
-  } catch {
-    redisDisabledUntil = Date.now() + REDIS_BACKOFF_MS;
-    return null;
-  }
+function getRedisClient() {
+  return getSharedRedisClient("cache");
 }
 
 function rateLimitRedisKey(userId: string): string {
@@ -75,7 +43,7 @@ function consumeInMemory(bucketKey: string): ConsumeResult {
 
 /**
  * Sliding-window limiter shared across dashboard GET routes.
- * When `REDIS_URL` is set, counts are stored in Redis (multi-instance safe); otherwise falls back
+ * When Redis is configured (`REDIS_HOST` / `REDIS_URL`), counts are stored in Redis (multi-instance safe); otherwise falls back
  * to the same in-memory buckets as before (per Node process).
  */
 export async function consumeDashboardRateLimit(userId: string | undefined): Promise<ConsumeResult> {
@@ -105,13 +73,6 @@ export async function consumeDashboardRateLimit(userId: string | undefined): Pro
     await r.pexpire(redisKey, DASHBOARD_RATE_LIMIT_WINDOW_MS);
     return { ok: true as const };
   } catch {
-    redisDisabledUntil = Date.now() + REDIS_BACKOFF_MS;
-    try {
-      void r.quit();
-    } catch {
-      /* ignore */
-    }
-    redisClient = null;
     return consumeInMemory(key);
   }
 }

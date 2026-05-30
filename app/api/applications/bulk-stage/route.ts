@@ -9,17 +9,24 @@ import { prisma } from "@/src/lib/prisma";
 import { isAdmin } from "@/src/lib/rbac";
 import {
   notifyAssignedInterviewersForInterviewStage,
-  notifyCandidateOfferSentEmailDeferred,
   notifyHiringManagersStageChanged,
   notifyJobStakeholdersOfferSent,
   scheduleNotificationWork,
 } from "@/src/lib/notification-service";
+import { scheduleCandidateStageChangeEmail } from "@/src/lib/schedule-candidate-stage-email";
+import { scheduleOfferSentEmail } from "@/src/lib/schedule-offer-sent-email";
 import { shouldNotifyStageChangeInApp } from "@/src/lib/notification-stage-policy";
 import type { ApplicationStage } from "@prisma/client";
 import {
   buildStageChangeDetails,
   serializeActivityLogDetails,
 } from "@/src/lib/activity-log-details";
+import {
+  invalidateCandidateScoringCaches,
+  invalidateJobCandidateScoringCaches,
+} from "@/src/lib/ai/candidate-scoring-cache";
+import { invalidateJobRecommendedCandidatesCaches } from "@/src/lib/job-recommended-candidates-cache";
+import { invalidateCandidateRecommendedCandidatesCaches } from "@/src/lib/job-recommended-candidates-cache";
 
 const ALLOWED_STAGES: ApplicationStage[] = [
   "APPLIED",
@@ -228,6 +235,22 @@ export async function POST(request: Request) {
   });
 
   const actorUserId = typeof userId === "string" ? userId : undefined;
+
+  const jobIds = new Set<string>();
+  const candidateIds = new Set<string>();
+  for (const u of updated) {
+    jobIds.add(u.jobId);
+    candidateIds.add(u.candidate.id);
+  }
+  for (const jobId of jobIds) {
+    void invalidateJobRecommendedCandidatesCaches(jobId);
+    void invalidateJobCandidateScoringCaches(jobId);
+  }
+  for (const candidateId of candidateIds) {
+    void invalidateCandidateRecommendedCandidatesCaches(candidateId);
+    void invalidateCandidateScoringCaches(candidateId);
+  }
+
   for (const u of updated) {
     const prev = eligible.find((e) => e.id === u.id);
     if (!prev) continue;
@@ -246,6 +269,14 @@ export async function POST(request: Request) {
         actorUserId,
       })
     );
+    scheduleCandidateStageChangeEmail({
+      candidateEmail: u.candidate.email,
+      candidateName: u.candidate.candidateName,
+      applicationId: u.id,
+      jobTitle: u.job.title,
+      fromStage: prev.stage,
+      toStage: stage,
+    });
     if (stage === "INTERVIEW") {
       scheduleNotificationWork(
         notifyAssignedInterviewersForInterviewStage({
@@ -267,14 +298,12 @@ export async function POST(request: Request) {
           actorUserId,
         })
       );
-      scheduleNotificationWork(
-        notifyCandidateOfferSentEmailDeferred({
-          candidateEmail: u.candidate.email,
-          candidateName: u.candidate.candidateName,
-          applicationId: u.id,
-          jobTitle: u.job.title,
-        })
-      );
+      scheduleOfferSentEmail({
+        candidateEmail: u.candidate.email,
+        candidateName: u.candidate.candidateName,
+        applicationId: u.id,
+        jobTitle: u.job.title,
+      });
     }
   }
 

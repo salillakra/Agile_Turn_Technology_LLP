@@ -24,8 +24,9 @@ function verifyCronSecret(request: Request): boolean {
 /**
  * GET / POST /api/cron/process-parse-jobs
  *
- * Drains up to `limit` pending `ResumeParseJob` rows (default 10, max 50), runs stub parsing,
- * sets DONE or FAILED, and writes ActivityLog completion/failure rows.
+ * Safety-net drain for pending `ResumeParseJob` rows when BullMQ/worker is down (default 10, max 50).
+ * Normal path: `POST .../resume/parse` or upload → `resumeParsingQueue` → worker.
+ * sets COMPLETED or FAILED, and writes ActivityLog completion/failure rows.
  *
  * **Auth:** `CRON_SECRET` must be set; request must include the secret (see `verifyCronSecret`).
  *

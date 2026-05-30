@@ -15,6 +15,7 @@ import {
   setReportsCache,
 } from "@/src/lib/reports-cache";
 import { withReportsTelemetry } from "@/src/lib/reports-telemetry";
+import { scheduleAnalyticsCacheRefresh } from "@/src/lib/enqueue-analytics-refresh";
 import { recordReportExport } from "@/src/lib/report-export-audit";
 
 export const runtime = "nodejs";
@@ -153,7 +154,7 @@ export async function GET(request: Request) {
 
   const where = {
     withdrawnAt: null as null,
-    ...(createdAtFilter ? { createdAt: createdAtFilter } : {}),
+    ...(createdAtFilter ? { appliedDate: createdAtFilter } : {}),
     ...(jobScopeInfo.jobIds == null
       ? {}
       : { jobId: { in: jobScopeInfo.jobIds as string[] } }),
@@ -162,6 +163,14 @@ export async function GET(request: Request) {
   let rows = await getReportsCache<ExportApplicationRow[]>(exportDataCacheKey);
   let cacheHit: "hit" | "miss" = rows == null ? "miss" : "hit";
   const dbStartedAt = Date.now();
+  if (rows != null) {
+    scheduleAnalyticsCacheRefresh({
+      scope: "reports",
+      cacheKey: exportDataCacheKey,
+      userId: userId ?? undefined,
+      role: String(role),
+    });
+  }
   if (rows == null) {
     rows = await prisma.application.findMany({
       where,

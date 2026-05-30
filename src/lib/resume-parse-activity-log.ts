@@ -123,9 +123,11 @@ export async function completeResumeParseJobAndLog(
   const updated = await db.resumeParseJob.update({
     where: { id: params.jobId },
     data: {
-      status: "DONE",
+      status: "COMPLETED",
       resultJson: params.resultJson,
       error: null,
+      completedAt: new Date(),
+      failedAt: null,
     },
     select: { id: true, fileHash: true },
   });
@@ -163,6 +165,8 @@ export async function failResumeParseJobAndLog(
       status: "FAILED",
       error: params.error,
       resultJson: null,
+      failedAt: new Date(),
+      completedAt: null,
     },
     select: { id: true, fileHash: true },
   });

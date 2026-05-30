@@ -19,12 +19,16 @@ import {
   safeResumeFilePath,
   tryRemovePreviousResumeFile,
 } from "@/src/lib/resume-storage";
+import { enqueueCandidateEmbedding } from "@/src/lib/enqueue-entity-embedding";
+import { enqueueResumeParseForCandidate } from "@/src/lib/enqueue-resume-parse";
+import { invalidateCandidateEmbedding } from "@/src/lib/candidate-embedding-sync";
 import {
   buildStoredFileName,
   getMaxResumeBytes,
   RESUME_FILE_TOO_LARGE_MESSAGE,
   validateResumeFile,
 } from "@/src/lib/resume-upload-validation";
+import { consumeApiRateLimit, rateLimitedResponse, readRateLimitConfig } from "@/src/lib/api-rate-limit";
 
 export const runtime = "nodejs";
 
@@ -126,7 +130,8 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
  * POST /api/candidates/[id]/resume
  *
  * Multipart form-data with field `file` (PDF, DOC, or DOCX).
- * Saves under uploads/resumes, sets `resumeUrl` + `resumeFileName`, returns candidate detail (same shape as GET).
+ * Saves under uploads/resumes, sets `resumeUrl` + `resumeFileName`, enqueues a background parse job,
+ * and returns candidate detail immediately (parsing runs in the worker — poll `GET .../parse-status`).
  *
  * **Replacement:** If the candidate already had a locally stored résumé, the old file is deleted **after**
  * the new file is written and the DB row is updated — so a failed write/update does not remove the prior file.
@@ -138,6 +143,28 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   if (auth instanceof NextResponse) return auth;
   const role = auth.session.user?.role;
   const userId = typeof auth.session.user?.id === "string" ? auth.session.user.id : undefined;
+
+  const cfg = readRateLimitConfig({
+    maxEnv: "RESUME_UPLOAD_RATE_MAX",
+    windowMsEnv: "RESUME_UPLOAD_RATE_WINDOW_MS",
+    defaultMax: 5,
+    defaultWindowMs: 60_000,
+  });
+  const limited = await consumeApiRateLimit({
+    prefix: "recruitment:resume:ratelimit:v1:",
+    scope: "candidate-upload",
+    identity: userId ?? "",
+    max: cfg.max,
+    windowMs: cfg.windowMs,
+  });
+  if (limited.ok === false) {
+    return rateLimitedResponse({
+      message: "Too many resume uploads. Try again later.",
+      retryAfterSeconds: limited.retryAfterSeconds,
+      limit: cfg.max,
+      windowSeconds: Math.round(cfg.windowMs / 1000),
+    });
+  }
 
   const { id } = await context.params;
   if (!id?.trim()) {
@@ -240,5 +267,44 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   // Replace: remove previous local file only after DB points at the new object (avoids losing the old file on failed write/update).
   await tryRemovePreviousResumeFile(previousResumeUrl);
 
-  return NextResponse.json(formatCandidateDetail(updated), { status: 201 });
+  if (previousResumeUrl !== resumeUrl) {
+    try {
+      await invalidateCandidateEmbedding(id);
+      void enqueueCandidateEmbedding(id).catch((e) => {
+        console.error("[candidates/[id]/resume] embedding enqueue failed for %s:", id, e);
+      });
+    } catch (e) {
+      console.error("[candidates/[id]/resume] invalidate embedding failed for %s:", id, e);
+    }
+  }
+
+  const parseEnqueue = await enqueueResumeParseForCandidate({
+    candidateId: id,
+    resumeUrl,
+    userId: userId ?? null,
+    forceNewJob: true,
+  });
+
+  const detail = formatCandidateDetail(updated);
+
+  return NextResponse.json(
+    {
+      ...detail,
+      resumeParse:
+        parseEnqueue.ok === true
+          ? {
+              enqueued: true,
+              idempotent: parseEnqueue.idempotent,
+              processing: parseEnqueue.processing,
+              bullmqJobId: parseEnqueue.bullmqJobId,
+              job: parseEnqueue.job,
+            }
+          : {
+              enqueued: false,
+              error: parseEnqueue.message,
+              code: parseEnqueue.code,
+            },
+    },
+    { status: 201 }
+  );
 }

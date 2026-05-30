@@ -16,6 +16,7 @@ import {
 } from "@/src/lib/reports-cache";
 import { calculatePercentChange } from "@/src/lib/metrics";
 import { withReportsTelemetry } from "@/src/lib/reports-telemetry";
+import { scheduleAnalyticsCacheRefresh } from "@/src/lib/enqueue-analytics-refresh";
 
 export const runtime = "nodejs";
 
@@ -98,6 +99,12 @@ export async function GET(request: Request) {
   });
   const cached = await getReportsCache<Record<string, unknown>>(cacheKey);
   if (cached != null) {
+    scheduleAnalyticsCacheRefresh({
+      scope: "reports",
+      cacheKey,
+      userId: userId ?? undefined,
+      role: String(role),
+    });
     return withReportsTelemetry(NextResponse.json(cached), {
       endpoint: "/api/reports/pipeline",
       role: String(role),

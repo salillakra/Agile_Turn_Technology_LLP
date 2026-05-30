@@ -24,10 +24,10 @@ export function parseDashboardRange(value: string | null | undefined): Dashboard
 }
 
 /**
- * Lower bound for `application.createdAt` range filters. Uses an absolute instant (`Date`) so Prisma compares
+ * Lower bound for `application.appliedDate` range filters. Uses an absolute instant (`Date`) so Prisma compares
  * consistently with DB timestamps regardless of server OS timezone.
  */
-export function getApplicationsCreatedAtFilter(range: DashboardRange): { gte: Date } | undefined {
+export function getApplicationsAppliedDateFilter(range: DashboardRange): { gte: Date } | undefined {
   if (range === "all") return undefined;
 
   const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
@@ -36,9 +36,9 @@ export function getApplicationsCreatedAtFilter(range: DashboardRange): { gte: Da
 
 /**
  * Previous period of equal length immediately before the current `range` window (UTC instants).
- * Example (7d): [now−14d, now−7d) for `createdAt`, matching current [now−7d, now).
+ * Example (7d): [now−14d, now−7d) for `appliedDate`, matching current [now−7d, now).
  */
-export function getPreviousApplicationsCreatedAtFilter(
+export function getPreviousApplicationsAppliedDateFilter(
   range: DashboardRange
 ): { gte: Date; lt: Date } | null {
   if (range === "all") return null;
@@ -50,6 +50,11 @@ export function getPreviousApplicationsCreatedAtFilter(
   const gte = new Date(now - 2 * windowMs);
   return { gte, lt };
 }
+
+// Backwards-compatible aliases (older code referred to `createdAt` windows, but the product UX
+// and Applicants list are driven by `appliedDate`).
+export const getApplicationsCreatedAtFilter = getApplicationsAppliedDateFilter;
+export const getPreviousApplicationsCreatedAtFilter = getPreviousApplicationsAppliedDateFilter;
 
 /**
  * UTC calendar month bucket for grouping (e.g. monthly trend charts).

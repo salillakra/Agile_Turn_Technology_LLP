@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { parseEducationJson } from "@/src/lib/candidate-structured-profile";
 
 const authorSelect = { id: true, name: true, email: true } as const;
 
@@ -39,6 +40,7 @@ export function formatCandidateDetail(candidate: CandidateDetailPayload): Record
 
   return {
     ...info,
+    education: parseEducationJson(candidate.education) ?? [],
     createdAt,
     updatedAt,
     skills: candidateSkills.map((s) => s.skillName),

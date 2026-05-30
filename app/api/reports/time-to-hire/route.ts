@@ -15,6 +15,7 @@ import {
   setReportsCache,
 } from "@/src/lib/reports-cache";
 import { withReportsTelemetry } from "@/src/lib/reports-telemetry";
+import { scheduleAnalyticsCacheRefresh } from "@/src/lib/enqueue-analytics-refresh";
 
 export const runtime = "nodejs";
 
@@ -54,6 +55,12 @@ export async function GET(request: Request) {
   });
   const cached = await getReportsCache<Record<string, unknown>>(cacheKey);
   if (cached != null) {
+    scheduleAnalyticsCacheRefresh({
+      scope: "reports",
+      cacheKey,
+      userId: userId ?? undefined,
+      role: String(role),
+    });
     return withReportsTelemetry(NextResponse.json(cached), {
       endpoint: "/api/reports/time-to-hire",
       role: String(role),
@@ -103,16 +110,16 @@ export async function GET(request: Request) {
     where: {
       withdrawnAt: null,
       hiredAt: { not: null },
-      ...(createdAtFilter ? { createdAt: createdAtFilter } : {}),
+      ...(createdAtFilter ? { appliedDate: createdAtFilter } : {}),
       ...jobScope,
     },
-    select: { createdAt: true, hiredAt: true },
+    select: { appliedDate: true, hiredAt: true },
   });
 
   const durationsDays: number[] = [];
   for (const a of apps) {
     if (!a.hiredAt) continue;
-    const days = (a.hiredAt.getTime() - a.createdAt.getTime()) / MS_PER_DAY;
+    const days = (a.hiredAt.getTime() - a.appliedDate.getTime()) / MS_PER_DAY;
     if (days >= 0 && Number.isFinite(days)) durationsDays.push(days);
   }
 

@@ -148,13 +148,13 @@ export default function ApplyFlow({ job }) {
         }
         latest = stBody;
         const status = stBody?.status;
-        if (status === "DONE" || status === "FAILED") break;
+        if (status === "COMPLETED" || status === "FAILED") break;
         setStatusMsg(`Parsing résumé… (${String(status || "PENDING")})`);
         // eslint-disable-next-line no-await-in-loop
         await sleep(delay);
         delay = Math.min(5000, Math.round(delay * 1.4));
       }
-      if (!latest || latest.status !== "DONE") {
+      if (!latest || latest.status !== "COMPLETED") {
         const msg = latest?.status === "FAILED" ? String(latest?.error || "Parse failed") : "Parse did not complete in time.";
         throw new Error(msg);
       }

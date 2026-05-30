@@ -13,12 +13,19 @@ import {
 import { prisma } from "@/src/lib/prisma";
 import { canAccessJobByScope } from "@/src/lib/rbac-scope";
 import {
+  invalidateCandidateScoringCaches,
+  invalidateJobCandidateScoringCaches,
+} from "@/src/lib/ai/candidate-scoring-cache";
+import { invalidateJobRecommendedCandidatesCaches } from "@/src/lib/job-recommended-candidates-cache";
+import { invalidateCandidateRecommendedCandidatesCaches } from "@/src/lib/job-recommended-candidates-cache";
+import {
   notifyAssignedInterviewersForInterviewStage,
-  notifyCandidateOfferSentEmailDeferred,
   notifyHiringManagersStageChanged,
   notifyJobStakeholdersOfferSent,
   scheduleNotificationWork,
 } from "@/src/lib/notification-service";
+import { scheduleCandidateStageChangeEmail } from "@/src/lib/schedule-candidate-stage-email";
+import { scheduleOfferSentEmail } from "@/src/lib/schedule-offer-sent-email";
 import { shouldNotifyStageChangeInApp } from "@/src/lib/notification-stage-policy";
 import type { ApplicationStage } from "@prisma/client";
 
@@ -39,6 +46,11 @@ type RouteContext = { params: Promise<{ id: string }> };
  * PATCH /api/applications/[id]/stage — move application to a new stage.
  * When stage is REJECTED, optional rejectionReason is accepted and persisted.
  * Creates ActivityLog STAGE_CHANGE. Blocked if already HIRED or REJECTED.
+ *
+ * **Candidate email (async):** After a successful commit, {@link scheduleCandidateStageChangeEmail}
+ * enqueues a BullMQ job via `after()` so the JSON response is not blocked by Redis/SMTP.
+ * The `npm run worker` email worker sends the message later.
+ *
  * In-app notifications run only when persisted `stage` changes (see `oldStage` vs `newStage`).
  */
 export async function PATCH(request: Request, context: RouteContext) {
@@ -203,6 +215,11 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   const newStage = updated.stage;
 
+  void invalidateJobRecommendedCandidatesCaches(updated.jobId);
+  void invalidateJobCandidateScoringCaches(updated.jobId);
+  void invalidateCandidateRecommendedCandidatesCaches(updated.candidate.id);
+  void invalidateCandidateScoringCaches(updated.candidate.id);
+
   /**
    * In-app notifications only after a successful transaction above (so DB and `ActivityLog`
    * match what we announce). Recipients get `createNotification(userId, "STAGE_CHANGED", …)`
@@ -224,6 +241,14 @@ export async function PATCH(request: Request, context: RouteContext) {
         actorUserId,
       })
     );
+    scheduleCandidateStageChangeEmail({
+      candidateEmail: updated.candidate.email,
+      candidateName: updated.candidate.candidateName,
+      applicationId: updated.id,
+      jobTitle: updated.job.title,
+      fromStage: oldStage,
+      toStage: newStage,
+    });
     if (newStage === "INTERVIEW") {
       scheduleNotificationWork(
         notifyAssignedInterviewersForInterviewStage({
@@ -245,14 +270,12 @@ export async function PATCH(request: Request, context: RouteContext) {
           actorUserId,
         })
       );
-      scheduleNotificationWork(
-        notifyCandidateOfferSentEmailDeferred({
-          candidateEmail: updated.candidate.email,
-          candidateName: updated.candidate.candidateName,
-          applicationId: updated.id,
-          jobTitle: updated.job.title,
-        })
-      );
+      scheduleOfferSentEmail({
+        candidateEmail: updated.candidate.email,
+        candidateName: updated.candidate.candidateName,
+        applicationId: updated.id,
+        jobTitle: updated.job.title,
+      });
     }
   }
 

@@ -13,6 +13,8 @@ import {
   consumeDashboardRateLimit,
   dashboardRateLimitedResponse,
 } from "@/src/lib/dashboard-rate-limit";
+import { dashboardActivityFeedKey } from "@/src/lib/cache/cache-keys";
+import { getCache, readPositiveIntEnv, setCache } from "@/src/lib/cache/cache-utils";
 
 const ENDPOINT = DASHBOARD_API_ENDPOINT.activity;
 
@@ -91,6 +93,24 @@ export async function GET(request: Request) {
       ? undefined
       : searchParams.get("cursor")?.trim();
 
+  const ttlSec = Math.max(1, readPositiveIntEnv("DASHBOARD_ACTIVITY_CACHE_TTL_SEC", 15));
+  const canCache = cursor == null;
+  const cacheKey = canCache
+    ? dashboardActivityFeedKey({ role, userId, limit })
+    : null;
+  if (canCache && cacheKey) {
+    const cached = await getCache<unknown>(cacheKey);
+    if (cached.hit && cached.value) {
+      return withDashboardTelemetry(NextResponse.json(cached.value), {
+        endpoint: ENDPOINT,
+        role,
+        startedAt,
+        cacheHit: "hit",
+        queryTimeMs: 0,
+      });
+    }
+  }
+
   const dbStartedAt = Date.now();
   try {
     if (cursor != null) {
@@ -145,24 +165,30 @@ export async function GET(request: Request) {
     const nextCursor = hasMore && page.length > 0 ? page[page.length - 1].id : null;
 
     const queryTimeMs = Date.now() - dbStartedAt;
+    const payload = {
+      activity: page.map((log) => ({
+        id: log.id,
+        action: log.action,
+        details: log.details,
+        user: log.user,
+        applicationId: log.applicationId,
+        createdAt: log.createdAt,
+      })),
+      nextCursor,
+      hasMore,
+    };
+
+    if (canCache && cacheKey) {
+      void setCache(cacheKey, payload, { ttlSec });
+    }
+
     return withDashboardTelemetry(
-      NextResponse.json({
-        activity: page.map((log) => ({
-          id: log.id,
-          action: log.action,
-          details: log.details,
-          user: log.user,
-          applicationId: log.applicationId,
-          createdAt: log.createdAt,
-        })),
-        nextCursor,
-        hasMore,
-      }),
+      NextResponse.json(payload),
       {
         endpoint: ENDPOINT,
         role,
         startedAt,
-        cacheHit: "n/a",
+        cacheHit: canCache ? "miss" : "n/a",
         queryTimeMs,
       }
     );

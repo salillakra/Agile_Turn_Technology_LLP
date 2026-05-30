@@ -3,19 +3,39 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { useMemo } from "react";
+import QueueMonitorLink from "@/components/QueueMonitorLink";
 
 const nav = [
   { id: "dashboard", href: "/dashboard", icon: "⬡", label: "Dashboard" },
   { id: "jobs", href: "/jobs", icon: "📋", label: "Jobs" },
   { id: "applicants", href: "/applicants", icon: "👥", label: "Applicants" },
+  { id: "search", href: "/search", icon: "✦", label: "AI Search" },
   { id: "kanban", href: "/kanban", icon: "⊞", label: "Kanban" },
   { id: "reports", href: "/reports", icon: "📊", label: "Reports" },
   { id: "users", href: "/users", icon: "👤", label: "Users" },
   { id: "profile", href: "/profile", icon: "◉", label: "Profile" },
 ];
 
-export default function Sidebar({ jobsCount = 0, applicantsCount = 0, hiredCount = 0, activeCount = 0 }) {
+export default function Sidebar({
+  jobsCount = 0,
+  applicantsCount = 0,
+  hiredCount = 0,
+  activeCount = 0,
+  showQueueMonitor = false,
+  showEmailMonitoring = false,
+}) {
   const pathname = usePathname();
+
+  const navItems = useMemo(() => {
+    if (!showEmailMonitoring) return nav;
+    // Insert admin operational links near Reports.
+    const out = [...nav];
+    const reportsIdx = out.findIndex((n) => n.id === "reports");
+    const insertAt = reportsIdx >= 0 ? reportsIdx + 1 : out.length;
+    out.splice(insertAt, 0, { id: "email-monitoring", href: "/admin/email-monitoring", icon: "✉", label: "Email monitoring" });
+    return out;
+  }, [showEmailMonitoring]);
 
   return (
     <aside
@@ -38,7 +58,7 @@ export default function Sidebar({ jobsCount = 0, applicantsCount = 0, hiredCount
         </div>
       </div>
       <nav aria-label="Primary" className="flex-1 px-3 py-3.5">
-        {nav.map((n) => {
+        {navItems.map((n) => {
           const active = pathname === n.href;
           return (
             <Link
@@ -57,6 +77,7 @@ export default function Sidebar({ jobsCount = 0, applicantsCount = 0, hiredCount
             </Link>
           );
         })}
+        {showQueueMonitor ? <QueueMonitorLink /> : null}
       </nav>
       <div className="border-t border-[var(--app-border)] px-4 py-3.5 transition-colors duration-200">
         <div role="group" aria-label="Recruitment snapshot counts" className="grid grid-cols-2 gap-2">

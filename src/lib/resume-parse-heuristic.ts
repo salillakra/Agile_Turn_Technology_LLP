@@ -1,5 +1,7 @@
 import type { ResumeParseResult } from "@/src/lib/resume-parse-result";
 import { scrubContactInfo } from "@/src/lib/pii-scrub";
+import { RESUME_PARSE_LIMITS } from "@/src/lib/resume-parse-limits";
+import { truncateSummaryWithFullStop } from "@/src/lib/text-terminal-punctuation";
 
 /**
  * Derives structured fields from raw plain text using heuristics (section headers, regex).
@@ -23,17 +25,29 @@ export function buildResumeParseResultFromPlainText(
   let summary = buildSummary(text, lines);
   summary = scrubContactInfo(summary);
   if (summary.length < 20 && lines.length > 0) {
-    summary = scrubContactInfo(normalizeWs(lines.slice(0, 5).join(" "))).slice(0, 500);
+    summary = truncateSummaryWithFullStop(
+      scrubContactInfo(normalizeWs(lines.slice(0, 5).join(" "))),
+      RESUME_PARSE_LIMITS.MAX_SUMMARY_LEN
+    );
   }
+
+  const finalSummary =
+    summary.length > 0
+      ? truncateSummaryWithFullStop(summary, RESUME_PARSE_LIMITS.MAX_SUMMARY_LEN)
+      : ensureSummaryFallback("No summary extracted.");
 
   return {
     name,
     skills: skills.length > 0 ? skills : ["(none detected — edit in review)"],
     experience: {
       years,
-      summary: summary || "No summary extracted.",
+      summary: finalSummary,
     },
   };
+}
+
+function ensureSummaryFallback(text: string): string {
+  return truncateSummaryWithFullStop(text, RESUME_PARSE_LIMITS.MAX_SUMMARY_LEN);
 }
 
 function inferCandidateName(fullText: string, lines: string[], fallback: string): string {
@@ -84,8 +98,9 @@ function inferYearsOfExperience(fullText: string): number {
   return 0;
 }
 
-const MAX_SKILLS = 24;
-const MAX_SKILL_LEN = 72;
+const MAX_SKILLS = RESUME_PARSE_LIMITS.MAX_SKILLS;
+const MAX_SKILL_LEN = RESUME_PARSE_LIMITS.MAX_SKILL_LEN;
+const MAX_SUMMARY_LEN = RESUME_PARSE_LIMITS.MAX_SUMMARY_LEN;
 
 function stripCategoryPrefix(s: string): string {
   // Common category prefixes seen in resumes: "Programming", "Frameworks/Libraries", etc.
@@ -184,7 +199,7 @@ function buildSummary(fullText: string, lines: string[]): string {
     if (m?.[1]) {
       const firstBlock = m[1].split(/\n{2,}|(?=EDUCATION|SKILLS|CERTIFICATION|ACHIEVEMENT)/i)[0] ?? m[1];
       const s = scrubContactInfo(normalizeWs(firstBlock).trim());
-      if (s.length > 50) return s.slice(0, 500);
+      if (s.length > 50) return truncateSummaryWithFullStop(s, MAX_SUMMARY_LEN);
     }
   }
   let start = 0;
@@ -195,7 +210,7 @@ function buildSummary(fullText: string, lines: string[]): string {
   let s = normalizeWs(body);
   s = s.replace(/\b\+?\d[\d\s\-]{8,}\d\b/g, " ").replace(/\S+@\S+\.\S+/g, " ");
   s = scrubContactInfo(normalizeWs(s));
-  return s.slice(0, 500);
+  return truncateSummaryWithFullStop(s, MAX_SUMMARY_LEN);
 }
 
 function normalizeWs(s: string): string {

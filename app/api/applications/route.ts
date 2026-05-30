@@ -10,6 +10,7 @@ import {
   buildApplicationCreatedDetails,
   serializeActivityLogDetails,
 } from "@/src/lib/activity-log-details";
+import { dedupeApplicationsByCandidateIdentity } from "@/src/lib/candidate-identity";
 import { prisma } from "@/src/lib/prisma";
 import { computeResumeSha256HexFromResumeUrl } from "@/src/lib/resume-file-hash";
 import { computeSkillMatchPercent } from "@/src/lib/resume-job-match";
@@ -17,6 +18,14 @@ import {
   notifyRecruitersApplicationCreated,
   scheduleNotificationWork,
 } from "@/src/lib/notification-service";
+import {
+  invalidateCandidateScoringCaches,
+  invalidateJobCandidateScoringCaches,
+} from "@/src/lib/ai/candidate-scoring-cache";
+import {
+  invalidateCandidateRecommendedCandidatesCaches,
+  invalidateJobRecommendedCandidatesCaches,
+} from "@/src/lib/job-recommended-candidates-cache";
 import type { ApplicationStage, CandidateSource } from "@prisma/client";
 
 const VALID_STAGES: ApplicationStage[] = [
@@ -149,13 +158,10 @@ export async function GET(request: Request) {
     ...(where.candidate ? { candidate: where.candidate } : {}),
   };
 
-  const [totalApplications, data] = await Promise.all([
-    prisma.application.count({ where: prismaWhere }),
-    prisma.application.findMany({
+  const rawRows = await prisma.application.findMany({
       where: prismaWhere,
       orderBy: { appliedDate: "desc" },
-      skip: offset,
-      take: limit,
+      take: 500,
       select: {
         id: true,
         candidateId: true,
@@ -172,8 +178,11 @@ export async function GET(request: Request) {
         candidate: true,
         job: true,
       },
-    }),
-  ]);
+    });
+
+  const deduped = dedupeApplicationsByCandidateIdentity(rawRows);
+  const data = deduped.slice(offset, offset + limit);
+  const totalApplications = deduped.length;
 
   const totalPages = totalApplications === 0 ? 0 : Math.ceil(totalApplications / limit);
 
@@ -238,7 +247,7 @@ export async function POST(request: Request) {
     return apiError("FORBIDDEN", "Applications are only allowed for open jobs", 403);
   }
 
-  // Resume eligibility gate (non-LLM): candidate can apply only if resume parse for the current resume is DONE
+  // Resume eligibility gate (non-LLM): candidate can apply only if resume parse for the current resume is COMPLETED
   // and parse output was applied to CandidateSkill, then skill match >= threshold (jobMeta.resumeMatchThreshold).
   const jobMetaObj =
     job.jobMeta != null && typeof job.jobMeta === "object" && !Array.isArray(job.jobMeta)
@@ -273,7 +282,7 @@ export async function POST(request: Request) {
     }
 
     const done = await prisma.resumeParseJob.findFirst({
-      where: { candidateId, fileHash: hashed.hash, status: "DONE" },
+      where: { candidateId, fileHash: hashed.hash, status: "COMPLETED" },
       orderBy: { createdAt: "desc" },
       select: { id: true },
     });
@@ -368,6 +377,11 @@ export async function POST(request: Request) {
         actorUserId: typeof session.user?.id === "string" ? session.user.id : undefined,
       })
     );
+
+    void invalidateJobRecommendedCandidatesCaches(created.jobId);
+    void invalidateJobCandidateScoringCaches(created.jobId);
+    void invalidateCandidateRecommendedCandidatesCaches(created.candidateId);
+    void invalidateCandidateScoringCaches(created.candidateId);
 
     return NextResponse.json(created, { status: 201 });
   } catch (e) {

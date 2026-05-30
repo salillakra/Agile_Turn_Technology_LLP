@@ -17,6 +17,11 @@ export type ParseStatusResponseBody = {
   status: ResumeParseJobStatus | null;
   result: unknown | null;
   error: string | null;
+  bullmqJobId: string | null;
+  attemptCount: number | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  failedAt: string | null;
 };
 
 /**
@@ -57,6 +62,11 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
       status: true,
       resultJson: true,
       error: true,
+      bullmqJobId: true,
+      attemptCount: true,
+      startedAt: true,
+      completedAt: true,
+      failedAt: true,
     },
   });
 
@@ -66,12 +76,22 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
         status: job.status,
         result: job.resultJson === null ? null : job.resultJson,
         error: job.error ?? null,
+        bullmqJobId: job.bullmqJobId ?? null,
+        attemptCount: job.attemptCount ?? null,
+        startedAt: job.startedAt?.toISOString() ?? null,
+        completedAt: job.completedAt?.toISOString() ?? null,
+        failedAt: job.failedAt?.toISOString() ?? null,
       }
     : {
         resumeParseJobId: null,
         status: null,
         result: null,
         error: null,
+        bullmqJobId: null,
+        attemptCount: null,
+        startedAt: null,
+        completedAt: null,
+        failedAt: null,
       };
 
   return NextResponse.json(body);

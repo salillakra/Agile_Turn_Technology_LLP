@@ -3,7 +3,12 @@ import { requireApiAuth } from "@/src/lib/api-auth";
 import { canViewCandidates } from "@/src/lib/rbac";
 import { isAdmin } from "@/src/lib/rbac";
 import { prisma } from "@/src/lib/prisma";
+import { pipelineStatsCacheKey } from "@/src/lib/cache/cache-keys";
+import { getCache, setCache } from "@/src/lib/cache/cache-utils";
+import { getDashboardAnalyticsCacheTtlMs } from "@/src/lib/dashboard-analytics-cache";
 import type { ApplicationStage } from "@prisma/client";
+
+export const runtime = "nodejs";
 
 const STAGES: ApplicationStage[] = [
   "APPLIED",
@@ -27,10 +32,17 @@ const STAGE_TO_KEY: Record<ApplicationStage, string> = {
   REJECTED: "rejectedCount",
 };
 
+function emptyStats(): Record<string, number> {
+  return STAGES.reduce(
+    (acc, stage) => ({ ...acc, [STAGE_TO_KEY[stage]]: 0 }),
+    {} as Record<string, number>
+  );
+}
+
 /**
  * GET /api/pipeline/stats — application counts per stage for recruitment analytics dashboards.
  * Optional jobId: counts for that job only; omit for global counts.
- * Response: { appliedCount, screeningCount, interviewCount, technicalCount, finalRoundCount, offerSentCount, hiredCount, rejectedCount }
+ * Cache: Redis TTL 5–15 min (`DASHBOARD_ANALYTICS_CACHE_TTL_SEC`), key `ats:v1:dashboard:pipeline:stats:...`
  */
 export async function GET(request: Request) {
   const auth = await requireApiAuth(canViewCandidates);
@@ -39,6 +51,15 @@ export async function GET(request: Request) {
   const userId = typeof auth.session.user?.id === "string" ? auth.session.user.id : "";
 
   const jobId = new URL(request.url).searchParams.get("jobId")?.trim() || undefined;
+
+  const cacheKey = pipelineStatsCacheKey({ role, userId, jobId });
+  const cached = await getCache<Record<string, number>>(cacheKey);
+  if (cached.hit && cached.value != null) {
+    const res = NextResponse.json(cached.value);
+    res.headers.set("X-Cache-Pipeline-Stats", "HIT");
+    return res;
+  }
+
   const allowedJobIds = isAdmin(role)
     ? null
     : (
@@ -48,14 +69,15 @@ export async function GET(request: Request) {
           distinct: ["jobId"],
         })
       ).map((r) => r.jobId);
+
   if (jobId && allowedJobIds != null && !allowedJobIds.includes(jobId)) {
-    return NextResponse.json(
-      STAGES.reduce(
-        (acc, stage) => ({ ...acc, [STAGE_TO_KEY[stage]]: 0 }),
-        {} as Record<string, number>
-      )
-    );
+    const stats = emptyStats();
+    await setCache(cacheKey, stats, { ttlMs: getDashboardAnalyticsCacheTtlMs() });
+    const res = NextResponse.json(stats);
+    res.headers.set("X-Cache-Pipeline-Stats", "MISS");
+    return res;
   }
+
   const where = {
     withdrawnAt: null as null,
     ...(jobId ? { jobId } : {}),
@@ -68,17 +90,14 @@ export async function GET(request: Request) {
     _count: { id: true },
   });
 
-  const stats = STAGES.reduce(
-    (acc, stage) => {
-      acc[STAGE_TO_KEY[stage] as keyof typeof acc] = 0;
-      return acc;
-    },
-    {} as Record<string, number>
-  );
-
+  const stats = emptyStats();
   for (const row of counts) {
     stats[STAGE_TO_KEY[row.stage]] = row._count.id;
   }
 
-  return NextResponse.json(stats);
+  await setCache(cacheKey, stats, { ttlMs: getDashboardAnalyticsCacheTtlMs() });
+
+  const res = NextResponse.json(stats);
+  res.headers.set("X-Cache-Pipeline-Stats", "MISS");
+  return res;
 }

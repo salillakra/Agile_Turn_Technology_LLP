@@ -157,10 +157,33 @@ export async function POST(request: Request) {
   const relevantExperience =
     body.relevantExperience != null ? Number(body.relevantExperience) : undefined;
 
+  const normalizedEmail = email.toLowerCase();
+  const existing = await prisma.candidate.findFirst({
+    where: { email: normalizedEmail },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  if (existing) {
+    const updated =
+      contactNumber != null && contactNumber !== existing.contactNumber
+        ? await prisma.candidate.update({
+            where: { id: existing.id },
+            data: {
+              candidateName: candidateName || existing.candidateName,
+              contactNumber: contactNumber === "" ? null : contactNumber,
+            },
+          })
+        : existing;
+    return NextResponse.json(updated, {
+      status: 200,
+      headers: { "X-Candidate-Reused": "true" },
+    });
+  }
+
   const candidate = await prisma.candidate.create({
     data: {
       candidateName,
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       contactNumber: contactNumber === "" ? null : contactNumber,
       candidateSource,
       totalExperience: Number.isInteger(totalExperience) ? totalExperience : undefined,
