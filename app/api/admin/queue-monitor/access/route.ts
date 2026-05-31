@@ -7,6 +7,8 @@ import {
 } from "@/src/lib/queue-monitor-access";
 import { QUEUE_MONITOR_BASE_PATH } from "@/src/lib/queues/bull-board-setup";
 import { ensureQueueMonitorServerStarted } from "@/src/lib/queues/queue-monitor-server";
+import { formatRedisPingFailureHint, pingRedisConfig } from "@/src/lib/redis-ping";
+import { isRedisConfigured } from "@/src/lib/queues/redis";
 
 export const runtime = "nodejs";
 
@@ -21,6 +23,21 @@ export async function GET() {
   }
   if (!isAdmin(session.user.role)) {
     return NextResponse.json({ error: "Forbidden — ADMIN only" }, { status: 403 });
+  }
+
+  if (isRedisConfigured()) {
+    const ping = await pingRedisConfig();
+    if (!ping.ok) {
+      return NextResponse.json(
+        {
+          error: "Redis is not reachable — queue monitor cannot load job data",
+          code: ping.code,
+          redisTarget: ping.target,
+          hint: formatRedisPingFailureHint(ping),
+        },
+        { status: 503 }
+      );
+    }
   }
 
   const started = await ensureQueueMonitorServerStarted();

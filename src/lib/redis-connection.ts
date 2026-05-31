@@ -32,6 +32,20 @@ function buildRedisOptions(
     enableReadyCheck: true,
     lazyConnect: false,
     maxRetriesPerRequest: purposeToMaxRetries(purpose),
+    // Prefer IPv4 on Windows (avoids flaky ::1 vs 127.0.0.1 portproxy behavior).
+    family: 4,
+    ...(purpose === "bullmq"
+      ? {
+          retryStrategy: (times: number) => {
+            if (times > 30) return null;
+            return Math.min(times * 200, 3000);
+          },
+          reconnectOnError: (err: Error) => {
+            const code = (err as NodeJS.ErrnoException).code;
+            return code === "ECONNRESET" || code === "ETIMEDOUT" || code === "ECONNREFUSED";
+          },
+        }
+      : {}),
   };
 
   if (config.mode === "url") {

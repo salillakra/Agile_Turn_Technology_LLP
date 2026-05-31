@@ -20,7 +20,9 @@ export default function QueueMonitorLink() {
       if (!res.ok) {
         const hint = typeof data.hint === "string" ? data.hint : "";
         const base = data.error || `Request failed (${res.status})`;
-        setError(hint ? `${base} ${hint}` : base);
+        const target =
+          typeof data.redisTarget === "string" ? ` (Redis: ${data.redisTarget})` : "";
+        setError(hint ? `${base}${target}. ${hint}` : `${base}${target}`);
         return;
       }
       if (typeof data.url === "string") {

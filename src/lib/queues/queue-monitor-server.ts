@@ -15,6 +15,12 @@ import {
   getQueueMonitorPublicOrigin,
 } from "@/src/lib/queue-monitor-access";
 import { isRedisConfigured, getRedisTargetDescription } from "@/src/lib/queues/redis";
+import { pingRedisConfig } from "@/src/lib/redis-ping";
+import {
+  closeBullBoardQueues,
+  getBullBoardQueueCount,
+} from "@/src/lib/queues/bull-board-queues";
+import { listBullMqQueueNames } from "@/src/lib/queues/queue-names";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -32,35 +38,94 @@ export function getQueueMonitorHealthUrl(): string {
   return `${origin}/health`;
 }
 
-async function isMonitorReachable(): Promise<boolean> {
+type MonitorHealthBody = {
+  ok?: boolean;
+  redis?: boolean;
+  redisReachable?: boolean;
+  queueCount?: number;
+};
+
+async function fetchMonitorHealth(): Promise<MonitorHealthBody | null> {
   try {
     const res = await fetch(getQueueMonitorHealthUrl(), {
-      signal: AbortSignal.timeout(800),
+      signal: AbortSignal.timeout(2000),
     });
-    return res.ok;
+    if (!res.ok) return null;
+    return (await res.json()) as MonitorHealthBody;
   } catch {
-    return false;
+    return null;
   }
 }
 
-function buildMonitorApp(): express.Application {
+async function isMonitorReachable(): Promise<boolean> {
+  const health = await fetchMonitorHealth();
+  return health?.ok === true;
+}
+
+/** True when an existing monitor was started without Redis or without queues. */
+async function monitorNeedsRebuild(): Promise<boolean> {
+  if (!isRedisConfigured()) return false;
+  const ping = await pingRedisConfig(3000);
+  if (!ping.ok) return false;
+
+  const health = await fetchMonitorHealth();
+  if (!health?.ok) return false;
+
+  const expectedQueues = listBullMqQueueNames().length;
+  const queueCount = typeof health.queueCount === "number" ? health.queueCount : 0;
+
+  if (health.redisReachable === false) return true;
+  if (queueCount === 0 && expectedQueues > 0) return true;
+  return false;
+}
+
+async function closeQueueMonitorServer(): Promise<void> {
+  await closeBullBoardQueues();
+  const server = globalThis.__queueMonitorServer;
+  globalThis.__queueMonitorServer = undefined;
+  globalThis.__queueMonitorStartPromise = undefined;
+  if (!server) return;
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve());
+  });
+}
+
+async function buildMonitorApp(): Promise<express.Application> {
   if (!process.env.NEXTAUTH_SECRET?.trim()) {
     throw new Error("NEXTAUTH_SECRET is required for the queue monitor (same value as the Next.js app).");
   }
 
+  let redisReachable = false;
   if (!isRedisConfigured()) {
     console.warn(
       "[monitor] Redis is not configured — Bull Board will not show live queue data until REDIS_URL or REDIS_HOST is set."
     );
   } else {
     console.info(`[monitor] redis=${getRedisTargetDescription() ?? "configured"}`);
+    const ping = await pingRedisConfig();
+    redisReachable = ping.ok;
+    if (!ping.ok) {
+      console.warn(
+        "[monitor] Redis ping failed — Bull Board will load without live queues:",
+        ping.error ?? "unknown"
+      );
+    }
   }
 
   const app = express();
-  const serverAdapter = createQueueMonitorBoard();
+  const serverAdapter = createQueueMonitorBoard({ redisReachable });
 
-  app.get("/health", (_req, res) => {
-    res.json({ ok: true, redis: isRedisConfigured() });
+  app.get("/health", async (_req, res) => {
+    const configured = isRedisConfigured();
+    const ping = configured ? await pingRedisConfig(2000) : { ok: false as const };
+    res.json({
+      ok: true,
+      redis: configured,
+      redisReachable: ping.ok,
+      redisTarget: ping.ok ? ping.target : undefined,
+      redisError: ping.ok ? undefined : ping.error,
+      queueCount: ping.ok ? getBullBoardQueueCount() : 0,
+    });
   });
 
   app.use(QUEUE_MONITOR_BASE_PATH, createAdminMonitorAuthMiddleware(QUEUE_MONITOR_BASE_PATH));
@@ -87,8 +152,20 @@ export async function ensureQueueMonitorServerStarted(): Promise<{
 }> {
   const origin = getQueueMonitorPublicOrigin();
 
+  if (await monitorNeedsRebuild()) {
+    console.info("[monitor] Rebuilding monitor (Redis recovered or queues were not loaded).");
+    await closeQueueMonitorServer();
+  }
+
   if (await isMonitorReachable()) {
-    return { ok: true, origin };
+    const health = await fetchMonitorHealth();
+    if (health?.redisReachable !== false && (health?.queueCount ?? 0) > 0) {
+      return { ok: true, origin };
+    }
+    if (!isRedisConfigured()) {
+      return { ok: true, origin };
+    }
+    await closeQueueMonitorServer();
   }
 
   if (globalThis.__queueMonitorServer) {
@@ -98,35 +175,38 @@ export async function ensureQueueMonitorServerStarted(): Promise<{
   if (!globalThis.__queueMonitorStartPromise) {
     globalThis.__queueMonitorStartPromise = new Promise<void>((resolve, reject) => {
       try {
-        const app = buildMonitorApp();
-        const port = getQueueMonitorPort();
-        const server = app.listen(port, "127.0.0.1", () => {
-          console.info(
-            `[monitor] Bull Board listening on http://127.0.0.1:${port}${QUEUE_MONITOR_BASE_PATH}`
-          );
-          resolve();
-        });
-        server.on("error", (err: NodeJS.ErrnoException) => {
-          if (err.code === "EADDRINUSE") {
-            void isMonitorReachable().then((reachable) => {
-              if (reachable) {
-                console.info(
-                  `[monitor] Port ${port} already in use — reusing existing monitor at ${origin}.`
-                );
-                resolve();
+        void buildMonitorApp()
+          .then((app) => {
+            const port = getQueueMonitorPort();
+            const server = app.listen(port, "127.0.0.1", () => {
+              console.info(
+                `[monitor] Bull Board listening on http://127.0.0.1:${port}${QUEUE_MONITOR_BASE_PATH}`
+              );
+              resolve();
+            });
+            server.on("error", (err: NodeJS.ErrnoException) => {
+              if (err.code === "EADDRINUSE") {
+                void isMonitorReachable().then((reachable) => {
+                  if (reachable) {
+                    console.info(
+                      `[monitor] Port ${port} already in use — reusing existing monitor at ${origin}.`
+                    );
+                    resolve();
+                    return;
+                  }
+                  reject(
+                    new Error(
+                      `Port ${port} is in use but /health did not respond. Stop the other process or set QUEUE_MONITOR_PORT.`
+                    )
+                  );
+                });
                 return;
               }
-              reject(
-                new Error(
-                  `Port ${port} is in use but /health did not respond. Stop the other process or set QUEUE_MONITOR_PORT.`
-                )
-              );
+              reject(err);
             });
-            return;
-          }
-          reject(err);
-        });
-        globalThis.__queueMonitorServer = server;
+            globalThis.__queueMonitorServer = server;
+          })
+          .catch(reject);
       } catch (e) {
         reject(e);
       }
