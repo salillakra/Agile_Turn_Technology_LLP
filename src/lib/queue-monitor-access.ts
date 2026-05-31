@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
 import { isAdmin } from "@/src/lib/rbac";
 
+/** Bull Board UI mount path (must match Express `app.use` and monitor rewrites). */
+export const QUEUE_MONITOR_BASE_PATH = "/admin/queues";
+
 /** Signed monitor session cookie (Bull Board sidecar). */
 export const QUEUE_MONITOR_COOKIE = "queue-monitor-session";
 

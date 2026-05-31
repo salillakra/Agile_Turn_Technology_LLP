@@ -26,6 +26,11 @@ const nextConfig = {
     "mammoth",
     "exceljs",
     "word-extractor",
+    "bullmq",
+    "ioredis",
+    "@bull-board/api",
+    "@bull-board/express",
+    "express",
   ],
   webpack: (config, { dev }) => {
     if (dev) {

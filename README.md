@@ -356,6 +356,71 @@ Run `npm run prisma:deploy` on a Postgres instance with the `vector` extension e
 
 ---
 
+## Deploy on Vercel (free tier)
+
+**Local development does not require Vercel.** Use `npm run dev` on your PC for day-to-day work. Vercel gives you a public HTTPS URL (demo, sharing, mobile access).
+
+### What works on Vercel Hobby (free)
+
+| Feature | On Vercel |
+|---------|-----------|
+| Dashboard, jobs, applicants, auth | Yes |
+| PostgreSQL (e.g. Prisma Postgres `DATABASE_URL`) | Yes |
+| Redis caching / rate limits (e.g. [Upstash](https://upstash.com) free Redis) | Yes, with `REDIS_URL` |
+| Resume parse cron | Yes (`vercel.json` runs `/api/cron/process-parse-jobs` every 5 min) |
+| BullMQ `npm run worker` | No (needs a separate host: Railway, Render, or your PC) |
+| Queue monitor (Bull Board) | No (local only: `npm run monitor`) |
+| AI service (`ai-service` Python) | No (host on Render/Railway or run locally; set `AI_SERVICE_URL`) |
+| Resume file storage | Limited (serverless disk is ephemeral; uploads may not persist across deploys) |
+
+### 1. Connect GitHub to Vercel
+
+1. Go to [vercel.com](https://vercel.com) and sign in with GitHub.
+2. **Add New Project** → import `Sahil2927/Agile_Turn_Technology_LLP`.
+3. Root directory: **`.`** (repo root is the Next.js app).
+4. Framework: **Next.js** (auto-detected).
+
+### 2. Environment variables (Vercel → Project → Settings → Environment Variables)
+
+| Variable | Required | Example / notes |
+|----------|----------|-----------------|
+| `DATABASE_URL` | Yes | Your Prisma Postgres URL |
+| `NEXTAUTH_SECRET` | Yes | `openssl rand -base64 32` |
+| `NEXTAUTH_URL` | Yes | `https://your-project.vercel.app` (set after first deploy, then redeploy) |
+| `PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK` | Yes | `1` (for `prisma migrate deploy` on Prisma hosted DB) |
+| `REDIS_URL` | Recommended | Upstash Redis URL (`rediss://...`) |
+| `CRON_SECRET` | Yes (for cron) | Random secret; Vercel sends `Authorization: Bearer <value>` |
+| `AI_SERVICE_URL` | Optional | Public URL of hosted `ai-service`, or leave unset for heuristic parse only |
+| `QUEUE_MONITOR_AUTO_START` | Optional | `false` (default on Vercel is production; monitor is disabled anyway) |
+
+Do **not** commit `.env` to GitHub.
+
+### 3. Deploy
+
+Click **Deploy**. Build runs:
+
+`prisma generate && prisma migrate deploy && next build`
+
+After the first deploy, set `NEXTAUTH_URL` to your real Vercel URL and **Redeploy**.
+
+### 4. Hybrid setup (recommended for full features)
+
+- **Vercel** — web app + cron parse jobs  
+- **Your PC** — `npm run worker` + Redis (WSL) + optional `ai-service` and queue monitor, using the same `DATABASE_URL` and `REDIS_URL` as production  
+
+### 5. CLI deploy (optional)
+
+```bash
+npm i -g vercel
+cd path/to/Agile_Turn_Technology_LLP
+vercel login
+vercel --prod
+```
+
+Paste the same environment variables when prompted or set them in the Vercel dashboard.
+
+---
+
 ## License
 
 Proprietary — Agile Turn Technology LLP. All rights reserved unless otherwise stated by the organization.

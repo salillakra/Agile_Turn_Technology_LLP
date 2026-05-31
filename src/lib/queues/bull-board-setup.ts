@@ -3,9 +3,9 @@ import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
 import { ExpressAdapter } from "@bull-board/express";
 import { createBullBoardAdapters } from "@/src/lib/queues/bull-board-queues";
 import { isRedisConfigured } from "@/src/lib/queues/redis";
+import { QUEUE_MONITOR_BASE_PATH } from "@/src/lib/queue-monitor-access";
 
-/** Bull Board UI mount path (must match Express `app.use` and `serverAdapter.setBasePath`). */
-export const QUEUE_MONITOR_BASE_PATH = "/admin/queues";
+export { QUEUE_MONITOR_BASE_PATH };
 
 export type CreateQueueMonitorBoardOptions = {
   /** When false, UI loads without BullMQ adapters (avoids ECONNRESET spam if Redis is down). */

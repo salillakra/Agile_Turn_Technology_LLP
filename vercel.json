@@ -1,4 +1,7 @@
 {
+  "framework": "nextjs",
+  "buildCommand": "prisma generate && prisma migrate deploy && next build",
+  "installCommand": "npm install",
   "crons": [
     {
       "path": "/api/cron/process-parse-jobs?limit=10",

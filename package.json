@@ -11,6 +11,7 @@
     "dev:turbo": "node --max-old-space-size=6144 ./node_modules/next/dist/bin/next dev --turbo",
     "dev:clean": "node scripts/clean-next.cjs && node --max-old-space-size=6144 ./node_modules/next/dist/bin/next dev",
     "build": "next build",
+    "postinstall": "prisma generate",
     "start": "next start",
     "lint": "next lint",
     "prisma:generate": "prisma generate",

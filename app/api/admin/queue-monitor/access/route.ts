@@ -3,10 +3,9 @@ import { getSession } from "@/src/lib/auth";
 import { isAdmin } from "@/src/lib/rbac";
 import {
   getQueueMonitorPublicOrigin,
+  QUEUE_MONITOR_BASE_PATH,
   signQueueMonitorToken,
 } from "@/src/lib/queue-monitor-access";
-import { QUEUE_MONITOR_BASE_PATH } from "@/src/lib/queues/bull-board-setup";
-import { ensureQueueMonitorServerStarted } from "@/src/lib/queues/queue-monitor-server";
 import { formatRedisPingFailureHint, pingRedisConfig } from "@/src/lib/redis-ping";
 import { isRedisConfigured } from "@/src/lib/queues/redis";
 
@@ -15,6 +14,7 @@ export const runtime = "nodejs";
 /**
  * Issue a short-lived ADMIN token and monitor URL for Bull Board (separate port/process).
  * Requires an active NextAuth session with role ADMIN.
+ * Not available on Vercel (local sidecar only).
  */
 export async function GET() {
   const session = await getSession();
@@ -23,6 +23,17 @@ export async function GET() {
   }
   if (!isAdmin(session.user.role)) {
     return NextResponse.json({ error: "Forbidden — ADMIN only" }, { status: 403 });
+  }
+
+  if (process.env.VERCEL) {
+    return NextResponse.json(
+      {
+        error: "Queue monitor is not available on Vercel",
+        hint:
+          "Bull Board runs as a local sidecar (npm run monitor). Use npm run dev locally for queue inspection, or deploy workers/monitor to Railway/Render.",
+      },
+      { status: 503 }
+    );
   }
 
   if (isRedisConfigured()) {
@@ -39,6 +50,10 @@ export async function GET() {
       );
     }
   }
+
+  const { ensureQueueMonitorServerStarted } = await import(
+    "@/src/lib/queues/queue-monitor-server"
+  );
 
   const started = await ensureQueueMonitorServerStarted();
   if (!started.ok) {
