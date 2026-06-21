@@ -1,0 +1,14 @@
+# ── HTTP API ─────────────────────────────────────────────────────────────────
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.32.0,<1.0.0
+pydantic>=2.10.0,<3.0.0
+pydantic-settings>=2.6.0,<3.0.0
+
+# ── Semantic matching (embeddings + similarity) ───────────────────────────────
+sentence-transformers>=3.3.0,<4.0.0
+torch>=2.4.0,<3.0.0
+numpy>=1.26.0,<3.0.0
+scikit-learn>=1.5.0,<2.0.0
+
+# ── Resume parsing NLP (see requirements-resume-nlp.txt for package notes) ───
+-r requirements-resume-nlp.txt

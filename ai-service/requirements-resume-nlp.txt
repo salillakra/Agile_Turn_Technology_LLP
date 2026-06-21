@@ -1,0 +1,26 @@
+# Resume parsing NLP stack (ai-service).
+# Install: pip install -r requirements.txt -r requirements-resume-nlp.txt
+#
+# spaCy language model (not a pip package — run once after install):
+#   python -m spacy download en_core_web_sm
+#
+# Optional tokenizer backend for some Hugging Face models:
+#   pip install -r requirements-resume-nlp-optional.txt
+
+# ── NLP core ─────────────────────────────────────────────────────────────────
+# Industrial-strength NLP: tokenization, NER, sentence boundaries for entity extraction.
+spacy>=3.7.5,<4.0.0
+
+# Pretrained transformer models (NER, classification, seq2seq) via Hugging Face Hub.
+transformers>=4.46.0,<5.0.0
+
+# ── PDF text extraction ───────────────────────────────────────────────────────
+# Fast PDF rendering/text extraction (MuPDF bindings); good for digital PDFs.
+PyMuPDF>=1.24.14,<2.0.0
+
+# Layout-aware PDF parsing (tables, bounding boxes); complements PyMuPDF on complex CVs.
+pdfplumber>=0.11.4,<1.0.0
+
+# ── Normalization ─────────────────────────────────────────────────────────────
+# Parse heterogeneous date strings ("Jan 2020", "01/2019", "present") → datetime.
+dateparser>=1.2.0,<2.0.0

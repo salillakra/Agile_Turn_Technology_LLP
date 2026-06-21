@@ -27,3 +27,11 @@ uploads/resumes/*
 !uploads/resumes/.gitkeep
 uploads/profile-media/*
 !uploads/profile-media/.gitkeep
+
+# Python AI microservice (ai-service/)
+ai-service/.env
+ai-service/.venv/
+ai-service/**/__pycache__/
+ai-service/**/*.py[cod]
+ai-service/.pytest_cache/
+ai-service/.mypy_cache/

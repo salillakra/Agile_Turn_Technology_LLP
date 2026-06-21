@@ -1,0 +1,3 @@
+# Optional resume NLP dependencies.
+# Install when using transformer tokenizers that require SentencePiece (e.g. XLM-R, mT5, some multilingual models).
+sentencepiece>=0.2.0,<0.3.0
