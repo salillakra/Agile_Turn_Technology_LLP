@@ -119,6 +119,36 @@ enum NotificationReferenceType {
   CANDIDATE
 }
 
+// Recruitment CRM — sales funnel and client commercial lifecycle.
+enum CrmLeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CONVERTED
+  LOST
+}
+
+enum CrmClientStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CrmRequirementStatus {
+  DRAFT
+  OPEN
+  ON_HOLD
+  FILLED
+  CANCELLED
+}
+
+enum CrmInvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
 // Core identity: credentials (email/password) and app role. Required so NextAuth and the app
 // have a single place for who is logged in and what they are allowed to do.
 model User {
@@ -150,6 +180,9 @@ model User {
   /// Extended fields editable by the user (phone, bio, etc.). Created at registration or on first profile access.
   profile          UserProfile?
   emailPreference  EmailPreference?
+  crmLeadsOwned           CrmLead[]         @relation("CrmLeadOwner")
+  crmClientsOwned         CrmClient[]       @relation("CrmClientAccountOwner")
+  crmRequirementsCreated  CrmRequirement[]  @relation("CrmRequirementCreator")
 
   @@map("users")
 }
@@ -280,6 +313,7 @@ model Job {
   creator              User          @relation(fields: [createdBy], references: [id], onDelete: Restrict)
   applications         Application[]
   assignments          JobAssignment[]
+  crmRequirement       CrmRequirement?
 
   @@map("jobs")
 }
@@ -467,6 +501,8 @@ model Application {
   job               Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
   activityLogs      ActivityLog[]
   interviews        Interview[]
+  crmSubmission     CrmSubmission?
+  crmClosure        CrmClosure?
 
   @@index([candidateId])
   @@index([jobId])
@@ -721,4 +757,154 @@ model EmailPreference {
   candidate          Candidate? @relation(fields: [candidateId], references: [id], onDelete: Cascade)
 
   @@map("email_preferences")
+}
+
+// Pre-client sales lead (Lead → Prospect funnel entry).
+model CrmLead {
+  id                String        @id @default(cuid())
+  companyName       String        @map("company_name")
+  contactName       String        @map("contact_name")
+  email             String?
+  phone             String?
+  source            String?
+  status            CrmLeadStatus @default(NEW)
+  notes             String?       @db.Text
+  expectedValue     Decimal?      @map("expected_value") @db.Decimal(12, 2)
+  ownerId           String?       @map("owner_id")
+  convertedClientId String?       @unique @map("converted_client_id")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  owner             User?         @relation("CrmLeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  convertedClient   CrmClient?    @relation("LeadConvertedClient", fields: [convertedClientId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([ownerId])
+  @@map("crm_leads")
+}
+
+// Signed customer account.
+model CrmClient {
+  id                String          @id @default(cuid())
+  name              String
+  industry          String?
+  website           String?
+  status            CrmClientStatus @default(ACTIVE)
+  accountOwnerId    String?         @map("account_owner_id")
+  billingEmail      String?         @map("billing_email")
+  billingAddress    String?         @map("billing_address") @db.Text
+  notes             String?         @db.Text
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  accountOwner      User?           @relation("CrmClientAccountOwner", fields: [accountOwnerId], references: [id], onDelete: SetNull)
+  contacts          CrmContact[]
+  requirements      CrmRequirement[]
+  closures          CrmClosure[]
+  invoices          CrmInvoice[]
+  convertedFromLead CrmLead?        @relation("LeadConvertedClient")
+
+  @@index([status])
+  @@index([accountOwnerId])
+  @@map("crm_clients")
+}
+
+// Client-side contact person.
+model CrmContact {
+  id        String    @id @default(cuid())
+  clientId  String    @map("client_id")
+  name      String
+  email     String?
+  phone     String?
+  title     String?
+  isPrimary Boolean   @default(false) @map("is_primary")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  client    CrmClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@map("crm_contacts")
+}
+
+// Client requirement — maps 1:1 to ATS Job when activated.
+model CrmRequirement {
+  id          String               @id @default(cuid())
+  clientId    String               @map("client_id")
+  title       String
+  description String?              @db.Text
+  headcount   Int                  @default(1)
+  feeType     String?              @map("fee_type")
+  feeAmount   Decimal?             @map("fee_amount") @db.Decimal(12, 2)
+  currency    String?              @default("INR")
+  status      CrmRequirementStatus @default(DRAFT)
+  jobId       String?              @unique @map("job_id")
+  department  String?
+  location    String?
+  createdById String               @map("created_by_id")
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+  client      CrmClient            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  job         Job?                 @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  createdBy   User                 @relation("CrmRequirementCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  submissions CrmSubmission[]
+  closures    CrmClosure[]
+
+  @@index([clientId])
+  @@index([status])
+  @@map("crm_requirements")
+}
+
+// CRM record when a candidate is submitted to a client requirement (links to Application).
+model CrmSubmission {
+  id            String         @id @default(cuid())
+  requirementId String         @map("requirement_id")
+  applicationId String         @unique @map("application_id")
+  submittedAt   DateTime       @default(now()) @map("submitted_at")
+  notes         String?        @db.Text
+  requirement   CrmRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  application   Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([requirementId])
+  @@map("crm_submissions")
+}
+
+// Deal closure when placement is confirmed (Application HIRED).
+model CrmClosure {
+  id            String         @id @default(cuid())
+  clientId      String         @map("client_id")
+  requirementId String         @map("requirement_id")
+  applicationId String         @unique @map("application_id")
+  closedAt      DateTime       @default(now()) @map("closed_at")
+  feeAmount     Decimal?       @map("fee_amount") @db.Decimal(12, 2)
+  revenueAmount Decimal?       @map("revenue_amount") @db.Decimal(12, 2)
+  currency      String?        @default("INR")
+  notes         String?        @db.Text
+  client        CrmClient      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  requirement   CrmRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  application   Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  invoice       CrmInvoice?
+
+  @@index([clientId])
+  @@index([requirementId])
+  @@map("crm_closures")
+}
+
+// Revenue invoice linked to client (optionally from a closure).
+model CrmInvoice {
+  id            String           @id @default(cuid())
+  clientId      String           @map("client_id")
+  closureId     String?          @unique @map("closure_id")
+  invoiceNumber String           @unique @map("invoice_number")
+  amount        Decimal          @db.Decimal(12, 2)
+  currency      String           @default("INR")
+  status        CrmInvoiceStatus @default(DRAFT)
+  dueDate       DateTime?        @map("due_date")
+  paidAt        DateTime?        @map("paid_at")
+  notes         String?          @db.Text
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+  client        CrmClient        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  closure       CrmClosure?      @relation(fields: [closureId], references: [id], onDelete: SetNull)
+
+  @@index([clientId])
+  @@index([status])
+  @@map("crm_invoices")
 }

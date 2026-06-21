@@ -26,6 +26,7 @@ import {
   invalidateCandidateRecommendedCandidatesCaches,
   invalidateJobRecommendedCandidatesCaches,
 } from "@/src/lib/job-recommended-candidates-cache";
+import { syncCrmSubmissionForApplication } from "@/src/lib/crm/crm-submission-sync";
 import type { ApplicationStage, CandidateSource } from "@prisma/client";
 
 const VALID_STAGES: ApplicationStage[] = [
@@ -382,6 +383,10 @@ export async function POST(request: Request) {
     void invalidateJobCandidateScoringCaches(created.jobId);
     void invalidateCandidateRecommendedCandidatesCaches(created.candidateId);
     void invalidateCandidateScoringCaches(created.candidateId);
+
+    void syncCrmSubmissionForApplication(created.id, created.jobId).catch((e) => {
+      console.error("[POST /api/applications] CRM submission sync failed:", e);
+    });
 
     return NextResponse.json(created, { status: 201 });
   } catch (e) {

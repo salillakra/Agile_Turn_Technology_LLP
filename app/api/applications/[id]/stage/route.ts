@@ -27,6 +27,7 @@ import {
 import { scheduleCandidateStageChangeEmail } from "@/src/lib/schedule-candidate-stage-email";
 import { scheduleOfferSentEmail } from "@/src/lib/schedule-offer-sent-email";
 import { shouldNotifyStageChangeInApp } from "@/src/lib/notification-stage-policy";
+import { syncCrmClosureForHiredApplication } from "@/src/lib/crm/crm-closure-sync";
 import type { ApplicationStage } from "@prisma/client";
 
 const ALLOWED_STAGES: ApplicationStage[] = [
@@ -275,6 +276,11 @@ export async function PATCH(request: Request, context: RouteContext) {
         candidateName: updated.candidate.candidateName,
         applicationId: updated.id,
         jobTitle: updated.job.title,
+      });
+    }
+    if (newStage === "HIRED") {
+      void syncCrmClosureForHiredApplication(updated.id).catch((e) => {
+        console.error("[PATCH /api/applications/[id]/stage] CRM closure sync failed:", e);
       });
     }
   }

@@ -15,6 +15,7 @@ import {
 } from "@/src/lib/notification-service";
 import { scheduleCandidateStageChangeEmail } from "@/src/lib/schedule-candidate-stage-email";
 import { scheduleOfferSentEmail } from "@/src/lib/schedule-offer-sent-email";
+import { syncCrmClosureForHiredApplication } from "@/src/lib/crm/crm-closure-sync";
 import { shouldNotifyStageChangeInApp } from "@/src/lib/notification-stage-policy";
 import type { ApplicationStage } from "@prisma/client";
 import {
@@ -303,6 +304,11 @@ export async function POST(request: Request) {
         candidateName: u.candidate.candidateName,
         applicationId: u.id,
         jobTitle: u.job.title,
+      });
+    }
+    if (stage === "HIRED") {
+      void syncCrmClosureForHiredApplication(u.id).catch((e) => {
+        console.error("[POST /api/applications/bulk-stage] CRM closure sync failed:", e);
       });
     }
   }

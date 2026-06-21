@@ -27,6 +27,7 @@ import {
   notifyRecruitersCandidateAdded,
   scheduleNotificationWork,
 } from "@/src/lib/notification-service";
+import { syncCrmSubmissionForApplication } from "@/src/lib/crm/crm-submission-sync";
 
 export const runtime = "nodejs";
 
@@ -316,6 +317,10 @@ export async function POST(request: Request) {
         jobId: application.jobId,
       })
     );
+
+    void syncCrmSubmissionForApplication(application.id, application.jobId).catch((e) => {
+      console.error("[POST /api/public/apply] CRM submission sync failed:", e);
+    });
 
     return NextResponse.json(application, { status: 201 });
   } catch (e) {

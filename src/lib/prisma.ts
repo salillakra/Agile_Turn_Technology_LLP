@@ -1,4 +1,9 @@
 import { PrismaClient } from "@prisma/client";
+import { normalizeDatabaseUrl } from "@/src/lib/normalize-database-url";
+
+if (process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = normalizeDatabaseUrl(process.env.DATABASE_URL);
+}
 
 /**
  * Reusable Prisma client singleton for Next.js.

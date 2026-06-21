@@ -110,9 +110,10 @@ export async function POST(request: Request) {
     return NextResponse.json(user, { status: 201 });
   } catch (err) {
     console.error("Registration error:", err);
-    return NextResponse.json(
-      { error: "Registration failed." },
-      { status: 500 }
-    );
+    const message =
+      process.env.NODE_ENV === "development" && err instanceof Error
+        ? err.message
+        : "Registration failed. Ensure the database is migrated (`npm run prisma:deploy`).";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

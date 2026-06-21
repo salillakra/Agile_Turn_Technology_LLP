@@ -8,6 +8,7 @@ import QueueMonitorLink from "@/components/QueueMonitorLink";
 
 const nav = [
   { id: "dashboard", href: "/dashboard", icon: "⬡", label: "Dashboard" },
+  { id: "crm", href: "/crm", icon: "🏢", label: "CRM" },
   { id: "jobs", href: "/jobs", icon: "📋", label: "Jobs" },
   { id: "applicants", href: "/applicants", icon: "👥", label: "Applicants" },
   { id: "search", href: "/search", icon: "✦", label: "AI Search" },
