@@ -39,3 +39,4 @@ ai-service/.mypy_cache/
 
 .agents
 .vscode
+skills-lock.json
