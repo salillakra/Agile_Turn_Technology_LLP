@@ -7,11 +7,11 @@ const authorSelect = { id: true, name: true, email: true } as const;
 export const candidateDetailInclude = {
   candidateSkills: { select: { id: true, skillName: true } },
   notes: {
-    include: { author: { select: authorSelect } },
+    include: { createdBy: { select: authorSelect } },
     orderBy: { createdAt: "desc" as const },
   },
   candidateNotes: {
-    include: { author: { select: authorSelect } },
+    include: { createdBy: { select: authorSelect } },
     orderBy: { createdAt: "desc" as const },
   },
   applications: {
@@ -48,13 +48,13 @@ export function formatCandidateDetail(candidate: CandidateDetailPayload): Record
       id: n.id,
       content: n.content,
       createdAt: n.createdAt,
-      author: n.author,
+      author: n.createdBy,
     })),
     recruiterNotes: candidateNotes.map((n) => ({
       id: n.id,
       note: n.note,
       createdAt: n.createdAt,
-      author: n.author,
+      author: n.createdBy,
     })),
     applications: applications.map((a) => ({
       id: a.id,

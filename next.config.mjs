@@ -3,8 +3,9 @@ const monitorOrigin = `http://127.0.0.1:${monitorPort}`;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Produces a minimal standalone server bundle for Docker (copies only needed node_modules).
+  output: "standalone",
   experimental: {
-    /** Reduces peak webpack memory during `next dev` (Next.js 15+). */
     webpackMemoryOptimizations: true,
   },
   /**
@@ -14,7 +15,10 @@ const nextConfig = {
     if (process.env.NODE_ENV !== "development") return [];
     return [
       { source: "/admin/queues", destination: `${monitorOrigin}/admin/queues` },
-      { source: "/admin/queues/:path*", destination: `${monitorOrigin}/admin/queues/:path*` },
+      {
+        source: "/admin/queues/:path*",
+        destination: `${monitorOrigin}/admin/queues/:path*`,
+      },
     ];
   },
   /** Keep heavy native/Node packages out of the webpack graph where possible. */
@@ -32,13 +36,6 @@ const nextConfig = {
     "@bull-board/express",
     "express",
   ],
-  webpack: (config, { dev }) => {
-    if (dev) {
-      // PackFileCacheStrategy can OOM on long Windows dev sessions; trade cache for stability.
-      config.cache = false;
-    }
-    return config;
-  },
 };
 
 export default nextConfig;

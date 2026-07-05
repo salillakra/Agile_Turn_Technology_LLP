@@ -3,7 +3,9 @@ import { prisma } from "@/src/lib/prisma";
 import { apiError } from "@/src/lib/api-error-response";
 import {
   getApplicationsCreatedAtFilter,
-  parseDashboardRange,
+  parseDashboardRangeParams,
+  dashboardRangeCacheToken,
+  getDateFilterOptions,
   toUtcMonthKey,
 } from "@/src/lib/dashboard-range";
 import {
@@ -79,11 +81,14 @@ export async function GET(request: Request) {
     );
   }
 
-  const rangeRaw = new URL(request.url).searchParams.get("range");
-  const range = parseDashboardRange(rangeRaw);
-  if (range == null) {
+  const parsedRange = parseDashboardRangeParams(new URL(request.url).searchParams);
+  if (parsedRange == null) {
     return withDashboardTelemetry(
-      apiError("INVALID_RANGE", "range must be one of: 7d, 30d, 90d, all", 400),
+      apiError(
+        "INVALID_RANGE",
+        "range must be one of: 7d, 30d, 90d, all, or custom with dateFrom",
+        400
+      ),
       {
         endpoint: ENDPOINT,
         role,
@@ -95,7 +100,8 @@ export async function GET(request: Request) {
     );
   }
 
-  const cacheKey = dashboardChartsCacheLogicalKey({ role, userId, range });
+  const rangeKey = dashboardRangeCacheToken(parsedRange);
+  const cacheKey = dashboardChartsCacheLogicalKey({ role, userId, range: rangeKey });
   const { value: cached } = await getDashboardAnalyticsCache<Record<string, unknown>>(cacheKey);
   if (cached != null) {
     // SWR: serve cached immediately, refresh async.
@@ -121,7 +127,10 @@ export async function GET(request: Request) {
     role,
   });
 
-  const createdAt = getApplicationsCreatedAtFilter(range);
+  const createdAt = getApplicationsCreatedAtFilter(
+    parsedRange.range,
+    getDateFilterOptions(parsedRange)
+  );
 
   const dbStartedAt = Date.now();
   try {

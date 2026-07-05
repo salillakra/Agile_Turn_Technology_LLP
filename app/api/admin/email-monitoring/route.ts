@@ -14,8 +14,8 @@ import {
  * Operational email dashboard (ADMIN). No UI in this repo yet — JSON for a future monitor page.
  *
  * Query:
- * - `range` — `7d` | `30d` | `90d` | `all` (default `30d`)
- * - `dateFrom` / `dateTo` — ISO UTC bounds (override range lower bound when both set)
+ * - `range` — `7d` | `30d` | `90d` | `all` | `custom` (default `30d`)
+ * - `dateFrom` / `dateTo` — ISO date bounds (required for `custom`; override preset lower bound when both set)
  * - `status` — `PENDING` | `SENT` | `FAILED`
  * - `emailType` | `type` — `all`, `stage_updates`, `interview_reminders`, `marketing_emails`,
  *   `transactional`, or a template key (e.g. `offer_sent`)
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
   if (!filter) {
     return apiError(
       "INVALID_FILTER",
-      "Invalid range or date params. range must be 7d, 30d, 90d, or all",
+      "Invalid range or date params. range must be 7d, 30d, 90d, all, or custom with dateFrom",
       400
     );
   }

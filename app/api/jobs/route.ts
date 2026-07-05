@@ -1,27 +1,17 @@
 import { NextResponse } from "next/server";
 import { requireApiAuth } from "@/src/lib/api-auth";
-import { validateJobCreatePayload } from "@/src/lib/job-validation";
+import { createJobFromBody } from "@/src/lib/job-create-from-body";
 import { canCreateJob } from "@/src/lib/rbac";
 import { buildJobVisibilityWhere } from "@/src/lib/rbac-scope";
 import { countUniqueActiveApplicantsByJobIds } from "@/src/lib/candidate-identity";
-import { enqueueJobEmbeddingAfterJobChange } from "@/src/lib/job-embedding-enqueue";
 import { prisma } from "@/src/lib/prisma";
 import { computeJobHealthScore } from "@/src/lib/job-health-score";
-import type { JobStatus } from "@prisma/client";
-import { Prisma } from "@prisma/client";
 
 const MS_PER_DAY = 86_400_000;
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const VALID_STATUSES = ["OPEN", "PAUSED", "CLOSED"] as const;
-const DEFAULT_PIPELINE_STAGES = [
-  "APPLIED",
-  "SCREENING",
-  "INTERVIEW",
-  "OFFER_SENT",
-  "HIRED",
-];
 
 /** GET /api/jobs — paginated, filterable list. Query: ?page=1&limit=20&status=OPEN&department=Engineering&search=frontend. Any authenticated user.
  * Each row includes `healthScore` (0–100) from `@/src/lib/job-health-score`; `applicantCount` / `hiredCount` / rates use non-withdrawn applications only (`withdrawnAt` null).
@@ -146,179 +136,19 @@ export async function POST(request: Request) {
   if (auth instanceof NextResponse) return auth;
   const { session } = auth;
 
-  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-  const title = typeof body?.title === "string" ? body.title.trim() : "";
-  const department = typeof body?.department === "string" ? body.department.trim() : "";
-  const location = typeof body?.location === "string" ? body.location.trim() : "";
-  const description = typeof body.description === "string" ? body.description.trim() || null : null;
-
+  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const userId = session.user?.id;
   if (!userId || typeof userId !== "string") {
     return NextResponse.json({ error: "Invalid session" }, { status: 401 });
   }
-  const creatorId = userId.trim();
-  const creatorExists = await prisma.user.findUnique({
-    where: { id: creatorId },
-    select: { id: true },
-  });
-  if (!creatorExists) {
+
+  const result = await createJobFromBody(userId.trim(), body);
+  if (!result.ok) {
     return NextResponse.json(
-      {
-        error: "Creator user not found",
-        details: { creatorId },
-      },
-      { status: 400 }
+      result.details ? { error: result.error, details: result.details } : { error: result.error },
+      { status: result.status }
     );
   }
 
-  const yearsOfExperience =
-    body.yearsOfExperience != null ? Number(body.yearsOfExperience) : undefined;
-  const additionalComments = typeof body.additionalComments === "string" ? body.additionalComments.trim() || null : null;
-  const statusRaw = body.status;
-  const status: JobStatus =
-    statusRaw === "OPEN" || statusRaw === "PAUSED" || statusRaw === "CLOSED" ? statusRaw : "OPEN";
-  const arrayOfStrings = (v: unknown): string[] =>
-    Array.isArray(v)
-      ? v
-          .filter((x): x is string => typeof x === "string")
-          .map((x) => x.trim())
-          .filter(Boolean)
-      : [];
-  const boolOr = (v: unknown, fallback: boolean): boolean =>
-    typeof v === "boolean" ? v : fallback;
-  const numOrNull = (v: unknown): number | null =>
-    v === null || v === undefined || v === "" ? null : Number(v);
-  const numberOfOpenings = Number(body.numberOfOpenings ?? 1);
-  const roleSummary = typeof body.roleSummary === "string" ? body.roleSummary.trim() : "";
-  const keyResponsibilities =
-    typeof body.keyResponsibilities === "string" ? body.keyResponsibilities.trim() : "";
-  const requiredSkills = arrayOfStrings(body.requiredSkills);
-  const preferredSkills = arrayOfStrings(body.preferredSkills);
-  const experienceRequired =
-    typeof body.experienceRequired === "string" ? body.experienceRequired.trim() : "";
-  const pipelineStages = arrayOfStrings(body.pipelineStages);
-  const salaryMin = numOrNull(body.salaryMin);
-  const salaryMax = numOrNull(body.salaryMax);
-  const currency = typeof body.currency === "string" ? body.currency.trim().toUpperCase() : null;
-  const budgetApprovalStatus =
-    typeof body.budgetApprovalStatus === "string" ? body.budgetApprovalStatus.trim() : null;
-  const education = typeof body.education === "string" ? body.education.trim() : null;
-  const minimumExperienceYears = numOrNull(body.minimumExperienceYears);
-  const locationConstraints =
-    typeof body.locationConstraints === "string" ? body.locationConstraints.trim() : null;
-  const resumeMatchThresholdRaw = body.resumeMatchThreshold;
-  const resumeMatchThreshold =
-    resumeMatchThresholdRaw === null || resumeMatchThresholdRaw === undefined || resumeMatchThresholdRaw === ""
-      ? null
-      : Number(resumeMatchThresholdRaw);
-  const applicationDeadline =
-    typeof body.applicationDeadline === "string" && body.applicationDeadline.trim()
-      ? body.applicationDeadline.trim()
-      : null;
-  const allowReferrals = boolOr(body.allowReferrals, true);
-  const tags = arrayOfStrings(body.tags);
-  const employmentType =
-    typeof body.employmentType === "string" ? body.employmentType.trim().toUpperCase() : "";
-  const hiringManagerIds = arrayOfStrings(body.hiringManagerIds);
-  const jobMeta = {
-    employmentType,
-    numberOfOpenings,
-    roleSummary,
-    keyResponsibilities,
-    requiredSkills,
-    preferredSkills,
-    experienceRequired,
-    pipelineStages: pipelineStages.length ? pipelineStages : DEFAULT_PIPELINE_STAGES,
-    salaryMin,
-    salaryMax,
-    currency,
-    budgetApprovalStatus,
-    education,
-    minimumExperienceYears,
-    locationConstraints,
-    resumeMatchThreshold,
-    applicationDeadline,
-    allowReferrals,
-    tags,
-  };
-  const createValidationError = validateJobCreatePayload({
-    title,
-    department,
-    location,
-    jobMeta,
-  });
-  if (createValidationError) {
-    return NextResponse.json(createValidationError, { status: 400 });
-  }
-
-  const descriptionForDb =
-    description?.trim() || jobMeta.roleSummary?.trim() || null;
-  const yearsOfExperienceColumn =
-    jobMeta.minimumExperienceYears != null && Number.isInteger(jobMeta.minimumExperienceYears)
-      ? jobMeta.minimumExperienceYears
-      : Number.isInteger(yearsOfExperience)
-        ? yearsOfExperience
-        : undefined;
-  if (hiringManagerIds.length > 0) {
-    const hmCount = await prisma.user.count({
-      where: { id: { in: hiringManagerIds }, role: "HIRING_MANAGER" },
-    });
-    if (hmCount !== hiringManagerIds.length) {
-      return NextResponse.json(
-        { error: "All hiringManagerIds must belong to HIRING_MANAGER users" },
-        { status: 400 }
-      );
-    }
-  }
-
-  let job;
-  try {
-    job = await prisma.$transaction(async (tx) => {
-      const created = await tx.job.create({
-        data: {
-          title,
-          department,
-          location,
-          yearsOfExperience: yearsOfExperienceColumn,
-          description: descriptionForDb,
-          additionalComments,
-          jobMeta: jobMeta as Prisma.InputJsonValue,
-          requiredSkills,
-          preferredSkills,
-          status,
-          createdBy: creatorId,
-        },
-      });
-      if (hiringManagerIds.length > 0) {
-        await tx.jobAssignment.createMany({
-          data: hiringManagerIds.map((hmId) => ({
-            jobId: created.id,
-            userId: hmId,
-            assignedBy: creatorId,
-          })),
-          skipDuplicates: true,
-        });
-      }
-      return created;
-    });
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
-      return NextResponse.json(
-        {
-          error: "Foreign key constraint violated",
-          details: {
-            creatorId,
-            field: (error.meta as any)?.field_name ?? null,
-          },
-        },
-        { status: 400 }
-      );
-    }
-    throw error;
-  }
-
-  void enqueueJobEmbeddingAfterJobChange(job.id, { reason: "created" }).catch((e) => {
-    console.error("[POST /api/jobs] embedding enqueue failed:", e);
-  });
-  return NextResponse.json(job, { status: 201 });
+  return NextResponse.json(result.job, { status: 201 });
 }

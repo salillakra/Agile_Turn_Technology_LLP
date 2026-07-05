@@ -4,7 +4,10 @@ import { apiError } from "@/src/lib/api-error-response";
 import {
   getApplicationsCreatedAtFilter,
   getPreviousApplicationsCreatedAtFilter,
-  parseDashboardRange,
+  parseDashboardRangeParams,
+  dashboardRangeCacheToken,
+  getDateFilterOptions,
+  isBoundedDashboardRange,
 } from "@/src/lib/dashboard-range";
 import {
   dashboardDatabaseError,
@@ -81,11 +84,14 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const rangeRaw = searchParams.get("range");
-  const range = parseDashboardRange(rangeRaw);
-  if (range == null) {
+  const parsedRange = parseDashboardRangeParams(searchParams);
+  if (parsedRange == null) {
     return withDashboardTelemetry(
-      apiError("INVALID_RANGE", "range must be one of: 7d, 30d, 90d, all", 400),
+      apiError(
+        "INVALID_RANGE",
+        "range must be one of: 7d, 30d, 90d, all, or custom with dateFrom",
+        400
+      ),
       {
         endpoint: ENDPOINT,
         role,
@@ -98,11 +104,11 @@ export async function GET(request: Request) {
   }
 
   const compare = parseCompareFlag(searchParams.get("compare"));
-  if (compare && range === "all") {
+  if (compare && !isBoundedDashboardRange(parsedRange)) {
     return withDashboardTelemetry(
       apiError(
         "INVALID_COMPARE",
-        "compare=true requires a bounded range (7d, 30d, or 90d), not all",
+        "compare=true requires a bounded range, not all",
         400
       ),
       {
@@ -116,10 +122,11 @@ export async function GET(request: Request) {
     );
   }
 
+  const rangeKey = dashboardRangeCacheToken(parsedRange);
   const cacheKey = dashboardSummaryCacheLogicalKey({
     role,
     userId,
-    range,
+    range: rangeKey,
     compare,
   });
   const { value: cached } = await getDashboardAnalyticsCache<Record<string, unknown>>(cacheKey);
@@ -147,8 +154,11 @@ export async function GET(request: Request) {
     role,
   });
 
-  const createdAt = getApplicationsCreatedAtFilter(range);
-  const previousBounds = compare ? getPreviousApplicationsCreatedAtFilter(range) : null;
+  const dateFilterOptions = getDateFilterOptions(parsedRange);
+  const createdAt = getApplicationsCreatedAtFilter(parsedRange.range, dateFilterOptions);
+  const previousBounds = compare
+    ? getPreviousApplicationsCreatedAtFilter(parsedRange.range, dateFilterOptions)
+    : null;
 
   const dbStartedAt = Date.now();
   try {

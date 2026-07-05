@@ -33,7 +33,7 @@ export async function GET(_request: Request, context: RouteContext) {
       jobId: true,
       userId: true,
       assignedAt: true,
-      assignedBy: true,
+      assignedById: true,
       user: { select: { id: true, name: true, email: true, role: true } },
     },
   });
@@ -84,19 +84,19 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   try {
-    const assignedBy = typeof session.user?.id === "string" ? session.user.id : null;
+    const assignedById = typeof session.user?.id === "string" ? session.user.id : null;
     const assignment = await prisma.jobAssignment.create({
       data: {
         jobId,
         userId,
-        assignedBy,
+        assignedById,
       },
       select: {
         id: true,
         jobId: true,
         userId: true,
         assignedAt: true,
-        assignedBy: true,
+        assignedById: true,
         user: { select: { id: true, name: true, email: true, role: true } },
       },
     });
