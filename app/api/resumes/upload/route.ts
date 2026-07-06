@@ -28,7 +28,7 @@ export const runtime = "nodejs";
  * `Request` API — `request.formData()` is the supported way to parse `multipart/form-data` and
  * is equivalent for this use case. (Streaming large bodies can use `busboy` if needed later.)
  *
- * **RBAC:** `canUploadResume` — ADMIN and RECRUITER only; HIRING_MANAGER → 403 (read-only for résumés).
+ * **RBAC:** `canUploadResume` — ADMIN and RECRUITER only; HIRING_MANAGER → 403 (read-only for resumes).
  */
 export async function POST(request: Request): Promise<NextResponse> {
   const auth = await requireApiAuth(canUploadResume);

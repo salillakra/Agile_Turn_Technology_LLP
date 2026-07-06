@@ -12,6 +12,8 @@ import {
   canAccessJobByScope,
 } from "@/src/lib/rbac-scope";
 import { prisma } from "@/src/lib/prisma";
+import { parseJobResumeMatchMeta } from "@/src/lib/job-resume-match-config";
+import { isResumeParseReady } from "@/src/lib/queue-job-status";
 import { computeResumeSha256HexFromResumeUrl } from "@/src/lib/resume-file-hash";
 import { computeSkillMatchPercent } from "@/src/lib/resume-job-match";
 import {
@@ -132,24 +134,9 @@ async function assertJobApplicationEligibility(
     return { ok: false, reason: "JOB_NOT_OPEN" };
   }
 
-  const jobMetaObj =
-    job.jobMeta != null && typeof job.jobMeta === "object" && !Array.isArray(job.jobMeta)
-      ? (job.jobMeta as Record<string, unknown>)
-      : null;
-  const thresholdRaw = jobMetaObj?.resumeMatchThreshold;
-  const threshold =
-    thresholdRaw === null || thresholdRaw === undefined || thresholdRaw === ""
-      ? null
-      : Number(thresholdRaw);
-  const requiredSkillsRaw = jobMetaObj?.requiredSkills;
-  const requiredSkills = Array.isArray(requiredSkillsRaw)
-    ? requiredSkillsRaw
-        .filter((x): x is string => typeof x === "string")
-        .map((x) => x.trim())
-        .filter(Boolean)
-    : [];
+  const { requiredSkills, effectiveThreshold } = parseJobResumeMatchMeta(job.jobMeta);
 
-  if (threshold == null || !Number.isFinite(threshold) || threshold <= 0 || requiredSkills.length === 0) {
+  if (effectiveThreshold == null || requiredSkills.length === 0) {
     return { ok: true };
   }
 
@@ -163,13 +150,13 @@ async function assertJobApplicationEligibility(
     return { ok: false, reason: "NOT_ELIGIBLE" };
   }
 
-  const done = await prisma.resumeParseJob.findFirst({
-    where: { candidateId: candidate.id, fileHash: hashed.hash, status: "COMPLETED" },
+  const parseJob = await prisma.resumeParseJob.findFirst({
+    where: { candidateId: candidate.id, fileHash: hashed.hash },
     orderBy: { createdAt: "desc" },
-    select: { id: true },
+    select: { id: true, status: true },
   });
-  if (!done) {
-    return { ok: false, reason: "NOT_ELIGIBLE" };
+  if (!parseJob || !isResumeParseReady(parseJob.status)) {
+    return { ok: true };
   }
 
   const skills = await prisma.candidateSkill.findMany({
@@ -183,7 +170,7 @@ async function assertJobApplicationEligibility(
   }
 
   const match = computeSkillMatchPercent({ requiredSkills, candidateSkills });
-  if (match.percent < threshold) {
+  if (match.percent < effectiveThreshold) {
     return { ok: false, reason: "NOT_ELIGIBLE" };
   }
 
@@ -553,7 +540,7 @@ export type BatchCreateApplicationsForJobApiInput = {
   userId: string | undefined;
   jobId: string;
   candidateIds: unknown;
-  /** When true, skip résumé-parse eligibility (recommendation shortlist). */
+  /** When true, skip resume-parse eligibility (recommendation shortlist). */
   fromRecommendations?: boolean;
 };
 

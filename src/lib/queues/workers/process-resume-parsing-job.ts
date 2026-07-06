@@ -14,6 +14,26 @@ import { permanentWorkerError } from "@/src/lib/queues/workers/worker-errors";
 async function resolveParseJobRecord(
   payload: ResumeParsingJobPayload
 ): Promise<ResumeParseJobRecord> {
+  if (payload.llmRetryOnly && payload.parseJobId) {
+    const existing = await prisma.resumeParseJob.findUnique({
+      where: { id: payload.parseJobId },
+      select: {
+        id: true,
+        candidateId: true,
+        fileHash: true,
+        llmRetryCount: true,
+        status: true,
+      },
+    });
+    if (!existing || existing.candidateId !== payload.candidateId) {
+      throw permanentWorkerError(`Parse job not found for LLM retry: ${payload.parseJobId}`);
+    }
+    if (existing.status !== QUEUE_JOB_STATUS.PARTIAL && isResumeParseReady(existing.status)) {
+      return existing;
+    }
+    return existing;
+  }
+
   const candidate = await prisma.candidate.findUnique({
     where: { id: payload.candidateId },
     select: { id: true, candidateName: true, resumeUrl: true },
@@ -27,8 +47,8 @@ async function resolveParseJobRecord(
   if (hashed.ok === false) {
     throw permanentWorkerError(
       hashed.reason === "FILE_NOT_FOUND"
-        ? "Résumé file missing from storage."
-        : "Résumé URL is not a supported local storage reference."
+        ? "resume file missing from storage."
+        : "resume URL is not a supported local storage reference."
     );
   }
 
@@ -41,14 +61,21 @@ async function resolveParseJobRecord(
           QUEUE_JOB_STATUS.PENDING,
           QUEUE_JOB_STATUS.PROCESSING,
           QUEUE_JOB_STATUS.COMPLETED,
+          QUEUE_JOB_STATUS.PARTIAL,
         ],
       },
     },
     orderBy: { createdAt: "desc" },
-    select: { id: true, candidateId: true, fileHash: true, status: true },
+    select: {
+      id: true,
+      candidateId: true,
+      fileHash: true,
+      status: true,
+      llmRetryCount: true,
+    },
   });
 
-  if (existing && isResumeParseReady(existing.status)) {
+  if (existing && isResumeParseReady(existing.status) && !payload.llmRetryOnly) {
     return existing;
   }
 
@@ -65,7 +92,7 @@ async function resolveParseJobRecord(
       status: "PENDING",
       fileHash: hashed.hash,
     },
-    select: { id: true, candidateId: true, fileHash: true },
+    select: { id: true, candidateId: true, fileHash: true, llmRetryCount: true },
   });
 
   await logResumeParseStarted(prisma, {
@@ -85,12 +112,14 @@ export async function processResumeParsingJob(job: Job<ResumeParsingJobPayload>)
   const payload = job.data;
   const parseJob = await resolveParseJobRecord(payload);
 
-  const existingDone = await prisma.resumeParseJob.findUnique({
-    where: { id: parseJob.id },
-    select: { status: true },
-  });
-  if (existingDone && isResumeParseReady(existingDone.status)) {
-    return;
+  if (!payload.llmRetryOnly) {
+    const existingDone = await prisma.resumeParseJob.findUnique({
+      where: { id: parseJob.id },
+      select: { status: true },
+    });
+    if (existingDone && isResumeParseReady(existingDone.status)) {
+      return;
+    }
   }
 
   await markResumeParseJobProcessing(prisma, {
@@ -106,6 +135,7 @@ export async function processResumeParsingJob(job: Job<ResumeParsingJobPayload>)
   const result = await executeResumeParseJob(prisma, parseJob, {
     resumeUrl: payload.resumeUrl,
     candidateName: candidate?.candidateName ?? "",
+    llmRetryOnly: Boolean(payload.llmRetryOnly),
   });
 
   if (result.outcome === "failed") {
@@ -114,8 +144,6 @@ export async function processResumeParsingJob(job: Job<ResumeParsingJobPayload>)
       payload.candidateId,
       result.error
     );
-    // `executeResumeParseJob` already persisted FAILED status + error in the DB.
-    // Throw unrecoverable so BullMQ marks this queue job failed (no retries).
     throw permanentWorkerError(result.error);
   }
 }

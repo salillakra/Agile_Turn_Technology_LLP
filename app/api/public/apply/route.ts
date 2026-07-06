@@ -152,7 +152,7 @@ async function parseRequest(request: Request): Promise<
  * Creates/reuses candidate by email and creates APPLIED application for an OPEN job.
  *
  * **Body:** `application/json` (same as before) **or** `multipart/form-data` with the same field names
- * plus optional `file` (résumé PDF/DOC/DOCX). When `file` is present, it is stored locally and
+ * plus optional `file` (resume PDF/DOC/DOCX). When `file` is present, it is stored locally and
  * `Candidate.resumeUrl` / `resumeFileName` are set before the application is created.
  */
 export async function POST(request: Request) {
@@ -190,7 +190,7 @@ export async function POST(request: Request) {
       await writeFile(absolutePath, buffer);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Write failed";
-      return apiError("WRITE_FAILED", "Could not save résumé file.", 500, { reason: msg });
+      return apiError("WRITE_FAILED", "Could not save resume file.", 500, { reason: msg });
     }
   }
 

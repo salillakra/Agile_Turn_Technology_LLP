@@ -3,7 +3,7 @@
 # start-dev.sh — Start the Docker infrastructure for local development.
 #
 # Starts: PostgreSQL (with pgvector), Redis, AI service
-# Then runs: Prisma migrations, then npm run dev:all (Next.js + monitor)
+# Then runs: Prisma migrations, then npm run dev:stack (Next.js + monitor + workers)
 #
 # Usage: bash start-dev.sh
 # ─────────────────────────────────────────────────────────────────────────────
@@ -79,9 +79,9 @@ echo "     PostgreSQL : localhost:${POSTGRES_PORT:-5432}"
 echo "     Redis      : localhost:${REDIS_PORT:-6379}"
 echo "     AI Service : http://localhost:${AI_SERVICE_PORT:-8000}"
 echo ""
-echo "👉  Now starting Next.js dev server + queue monitor..."
+echo "👉  Now starting Next.js dev server + queue monitor + background workers..."
 echo "────────────────────────────────────────────────────────────────────────"
 echo ""
 
-# ── Start Next.js + monitor ───────────────────────────────────────────────────
-npm run dev:all
+# ── Start Next.js + monitor + BullMQ workers ─────────────────────────────────
+npm run dev:stack

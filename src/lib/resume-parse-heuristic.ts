@@ -2,6 +2,10 @@ import type { ResumeParseResult } from "@/src/lib/resume-parse-result";
 import { scrubContactInfo } from "@/src/lib/pii-scrub";
 import { RESUME_PARSE_LIMITS } from "@/src/lib/resume-parse-limits";
 import { truncateSummaryWithFullStop } from "@/src/lib/text-terminal-punctuation";
+import {
+  isPlausiblePersonName,
+  isResumeSectionHeaderName,
+} from "@/src/lib/resume-parse/candidate-name-sanitize";
 
 /**
  * Derives structured fields from raw plain text using heuristics (section headers, regex).
@@ -54,14 +58,12 @@ function inferCandidateName(fullText: string, lines: string[], fallback: string)
   const nameLineMatch = fullText.match(/(?:^|\n)\s*(?:name|full name)\s*[:.]?\s*([^\n|]+)/i);
   if (nameLineMatch?.[1]) {
     const n = nameLineMatch[1].trim().split(/[,;]/)[0].trim();
-    if (n.length >= 2 && n.length < 100 && !/@/.test(n)) return n;
+    if (isPlausiblePersonName(n)) return n;
   }
   const first = lines[0] ?? "";
   if (first.includes("|")) {
     const head = first.split("|")[0].trim();
-    if (head.length >= 3 && head.length < 90 && /[a-zA-Z]/.test(head) && !/\d{10}/.test(head)) {
-      return head;
-    }
+    if (isPlausiblePersonName(head) && !/\d{10}/.test(head)) return head;
   }
   const words = first.split(/\s+/).filter(Boolean);
   if (
@@ -70,17 +72,19 @@ function inferCandidateName(fullText: string, lines: string[], fallback: string)
     first.length < 100 &&
     !/@/.test(first) &&
     !/^\d{10}/.test(first) &&
-    !/[|]/.test(first)
+    !/[|]/.test(first) &&
+    firstLineLooksLikeName(first)
   ) {
-    return firstLineLooksLikeName(first) ? first : fallback;
+    return first;
   }
-  return fallback;
+  return isPlausiblePersonName(fallback) ? fallback : fallback.trim() || "Unknown";
 }
 
 function firstLineLooksLikeName(s: string): boolean {
   if (/[|@]/.test(s)) return false;
   if (/\d{5,}/.test(s)) return false;
-  return true;
+  if (isResumeSectionHeaderName(s)) return false;
+  return isPlausiblePersonName(s);
 }
 
 function inferYearsOfExperience(fullText: string): number {

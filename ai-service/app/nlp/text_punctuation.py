@@ -1,4 +1,4 @@
-"""Terminal punctuation helpers for résumé prose fields."""
+"""Terminal punctuation helpers for resume prose fields."""
 
 from __future__ import annotations
 

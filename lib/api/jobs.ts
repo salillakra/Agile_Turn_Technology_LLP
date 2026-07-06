@@ -46,7 +46,7 @@ export interface UserOption {
 }
 
 export async function fetchJobs(): Promise<Job[]> {
-  const { data } = await apiClient.get<{ data: Job[] }>("/jobs");
+  const { data } = await apiClient.get<{ data: Job[] }>("/jobs?limit=100");
   return Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
 }
 

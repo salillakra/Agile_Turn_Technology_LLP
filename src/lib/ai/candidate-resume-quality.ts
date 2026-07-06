@@ -27,7 +27,7 @@ export const DEFAULT_RESUME_QUALITY_WEIGHTS: ResumeQualityScoreWeights = {
   certificationsPresence: 0.1,
 };
 
-/** Profile fields used for deterministic résumé quality (from Candidate + parse). */
+/** Profile fields used for deterministic resume quality (from Candidate + parse). */
 export type CandidateResumeQualityInput = RecommendationCandidateInput & {
   candidateName?: string | null;
   email?: string | null;
@@ -158,7 +158,7 @@ export function scoreCertificationsPresence(candidate: CandidateResumeQualityInp
 }
 
 /**
- * Deterministic résumé / profile quality (0–100).
+ * Deterministic resume / profile quality (0–100).
  * Feeds confidence and recruiter "profile ready for review" signals — not job fit.
  */
 export function computeResumeQualityScore(

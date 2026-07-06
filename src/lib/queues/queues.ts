@@ -74,7 +74,7 @@ function getOrCreateQueue(name: QueueName, options?: Partial<QueueOptions>): Que
   return queue;
 }
 
-/** Résumé parse jobs — see `resume-parsing-queue.ts`. */
+/** resume parse jobs — see `resume-parsing-queue.ts`. */
 export function getParseQueue(): Queue {
   return getResumeParsingQueue();
 }

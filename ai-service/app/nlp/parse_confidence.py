@@ -1,8 +1,7 @@
 """
-Rule-based confidence scores (0–1) for résumé NLP extractions.
+Rule-based confidence scores (0–1) for resume NLP extractions.
 
 Signals: section headers, field completeness, explicit statements, and job-date coverage.
-No LLM — auditable heuristics aligned with each extractor's evidence.
 """
 
 from __future__ import annotations

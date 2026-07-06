@@ -1,4 +1,4 @@
-"""Orchestrate résumé PDF text extraction and NLP structuring."""
+"""Orchestrate resume PDF text extraction and NLP structuring."""
 
 from __future__ import annotations
 

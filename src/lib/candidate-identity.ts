@@ -179,7 +179,7 @@ export async function resolveSiblingCandidateIds(candidateId: string): Promise<s
 }
 
 /**
- * Which duplicate row to attach the application to (résumé/skills, or existing app on job).
+ * Which duplicate row to attach the application to (resume/skills, or existing app on job).
  */
 export async function resolveCanonicalCandidateIdForShortlist(
   candidateId: string,

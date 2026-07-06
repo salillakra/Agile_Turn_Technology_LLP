@@ -2,7 +2,7 @@ import { truncateSummaryWithFullStop } from "@/src/lib/text-terminal-punctuation
 import { RESUME_PARSE_LIMITS } from "@/src/lib/resume-parse-limits";
 
 /**
- * Canonical structured résumé parse — mirrors POST /parse-resume (ai-service schema v8).
+ * Canonical structured resume parse — mirrors POST /parse-resume (ai-service schema v8).
  *
  * Fixed field set; bump `schemaVersion` when adding or renaming keys.
  */

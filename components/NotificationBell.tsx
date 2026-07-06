@@ -18,7 +18,10 @@ function notificationTargetHref(referenceId, referenceType) {
   return null;
 }
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_IDLE_MS = 10_000;
+const POLL_INTERVAL_OPEN_MS = 5_000;
+const POLL_INTERVAL_SSE_BACKUP_MS = 60_000;
+const SSE_RECONNECT_MS = 5_000;
 export const NOTIFICATIONS_REFRESH_EVENT = "recruitment:notifications-refresh";
 
 const TYPE_LABEL = {
@@ -47,6 +50,7 @@ export default function NotificationBell() {
   const [totalPages, setTotalPages] = useState(0);
   const [page, setPage] = useState(1);
   const openRef = useRef(false);
+  const sseConnectedRef = useRef(false);
   openRef.current = open;
 
   const fetchUnreadCount = useCallback(async () => {
@@ -74,27 +78,89 @@ export default function NotificationBell() {
     finally { setLoading(false); }
   }, []);
 
+  const refreshFeed = useCallback(() => {
+    void fetchUnreadCount();
+    if (openRef.current) void fetchNotifications(1);
+  }, [fetchUnreadCount, fetchNotifications]);
+
   useEffect(() => {
-    fetchUnreadCount();
+    refreshFeed();
+
     function onVisibilityChange() {
-      if (document.visibilityState === "visible") void fetchUnreadCount();
+      if (document.visibilityState === "visible") refreshFeed();
     }
+
     document.addEventListener("visibilitychange", onVisibilityChange);
-    const t = setInterval(() => {
+
+    const poll = () => {
       if (document.visibilityState !== "visible") return;
-      void fetchUnreadCount();
-    }, POLL_INTERVAL_MS);
-    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVisibilityChange); };
-  }, [fetchUnreadCount]);
+      refreshFeed();
+    };
+
+    const getPollInterval = () => {
+      if (sseConnectedRef.current) return POLL_INTERVAL_SSE_BACKUP_MS;
+      if (openRef.current) return POLL_INTERVAL_OPEN_MS;
+      return POLL_INTERVAL_IDLE_MS;
+    };
+
+    let pollTimer = setInterval(poll, getPollInterval());
+
+    return () => {
+      clearInterval(pollTimer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [refreshFeed, open]);
+
+  useEffect(() => {
+    if (typeof EventSource === "undefined") return undefined;
+
+    let es = null;
+    let reconnectTimer = null;
+    let disposed = false;
+
+    const connect = () => {
+      if (disposed) return;
+      es = new EventSource("/api/notifications/stream");
+
+      es.addEventListener("connected", () => {
+        sseConnectedRef.current = true;
+      });
+
+      es.addEventListener("notification", () => {
+        refreshFeed();
+      });
+
+      es.addEventListener("ping", () => {
+        /* keep-alive */
+      });
+
+      es.onerror = () => {
+        sseConnectedRef.current = false;
+        es?.close();
+        es = null;
+        if (!disposed) {
+          reconnectTimer = setTimeout(connect, SSE_RECONNECT_MS);
+        }
+      };
+    };
+
+    connect();
+
+    return () => {
+      disposed = true;
+      sseConnectedRef.current = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      es?.close();
+    };
+  }, [refreshFeed]);
 
   useEffect(() => {
     function onRefresh() {
-      void fetchUnreadCount();
-      if (openRef.current) void fetchNotifications(1);
+      refreshFeed();
     }
     window.addEventListener(NOTIFICATIONS_REFRESH_EVENT, onRefresh);
     return () => window.removeEventListener(NOTIFICATIONS_REFRESH_EVENT, onRefresh);
-  }, [fetchUnreadCount, fetchNotifications]);
+  }, [refreshFeed]);
 
   useEffect(() => {
     if (open) fetchNotifications(1);

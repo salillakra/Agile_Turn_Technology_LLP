@@ -1,40 +1,48 @@
 import type { Prisma } from "@prisma/client";
 import {
-  isAiResumeParseConfigured,
-  parseResumePdfFile,
+  isAiResumeLlmParseConfigured,
+  parseResumeTextWithLlm,
 } from "@/src/lib/ai-service-client";
-import { buildResumeParseResultFromPlainText } from "@/src/lib/resume-parse-heuristic";
-import type { ResumeParseResult } from "@/src/lib/resume-parse-result";
-import { isResumeParseResult } from "@/src/lib/resume-parse-result";
-import { resolveLocalResumePdfPath } from "@/src/lib/resume-local-path";
 import {
   buildCandidateSemanticTextFromParse,
   type ParseSemanticProfileInput,
 } from "@/src/lib/candidate-semantic-text";
-import {
-  structuredResumeParseToResultJson,
-  type ParseResumeApiResponse,
-  type StructuredResumeParse,
-} from "@/src/lib/structured-resume-parse";
+import type { HybridParseMeta, LlmParseResult, ResumeParseStrategy } from "@/src/lib/resume-parse/llm-parse-types";
+import { shouldCallLlm } from "@/src/lib/resume-parse/llm-gate";
+import { mergeResumeParses } from "@/src/lib/resume-parse/merge-resume-parses";
+import { ruleBasedParse } from "@/src/lib/resume-parse/rule-based-parse";
+import type { ResumeParseResult } from "@/src/lib/resume-parse-result";
+import { isResumeParseResult } from "@/src/lib/resume-parse-result";
+import { RESUME_PARSE_LIMITS } from "@/src/lib/resume-parse-limits";
+import { truncateSummaryWithFullStop } from "@/src/lib/text-terminal-punctuation";
+import type { StructuredResumeParse } from "@/src/lib/structured-resume-parse";
+import { resolveLocalResumeFilePath, resolveLocalResumePdfPath } from "@/src/lib/resume-local-path";
 import { enqueueCandidateEmbeddingAfterParse } from "@/src/lib/resume-parse-embedding";
 
 export type ResumeParsePipelineInput = {
   plainText: string;
   resumeUrl: string;
   candidateName: string;
+  pdfPath?: string | null;
+  pdfBuffer?: Buffer | null;
+  /** When true, only attempt LLM enrichment (PARTIAL retry path). */
+  llmRetryOnly?: boolean;
 };
 
 export type ResumeParsePipelineOutput = {
-  resultJson: ResumeParseResult;
+  resultJson: ResumeParseResult & { hybrid?: HybridParseMeta };
   structured: StructuredResumeParse | null;
   semanticProfileText: string;
-  parseSource: "ai-service" | "heuristic";
+  parseSource: "hybrid" | "rule-based" | "heuristic";
+  strategyUsed: ResumeParseStrategy;
+  ruleConfidence: number;
+  llmConfidence: number | null;
+  disagreementFlags: string[];
+  /** True when rule result persisted but LLM failed/skipped — schedule retry. */
+  partialLlmMiss: boolean;
+  llmSkippedReason: string | null;
+  hybridMeta: HybridParseMeta;
 };
-
-function structuredFromAiResponse(response: ParseResumeApiResponse): StructuredResumeParse {
-  const { rawText: _rawText, ...structured } = response;
-  return structured;
-}
 
 function buildSemanticProfile(
   structured: StructuredResumeParse | null,
@@ -58,48 +66,98 @@ function buildSemanticProfile(
   return buildCandidateSemanticTextFromParse(input);
 }
 
+function mergedToResultJson(
+  merged: ReturnType<typeof mergeResumeParses>,
+  hybridMeta: HybridParseMeta
+): ResumeParseResult & { hybrid?: HybridParseMeta } {
+  return {
+    name: merged.name,
+    skills: merged.skills.length > 0 ? merged.skills : ["(none detected — edit in review)"],
+    experience: {
+      years: merged.experienceYears,
+      summary: truncateSummaryWithFullStop(merged.summary, RESUME_PARSE_LIMITS.MAX_SUMMARY_LEN),
+    },
+    structured: merged.structured,
+    hybrid: hybridMeta,
+  };
+}
+
 /**
- * Run NLP parse (ai-service when configured + PDF path) or heuristic fallback.
+ * Hybrid parse: rule-based always (free) → gated Gemini LLM → merge.
  */
 export async function runResumeParsePipeline(
   input: ResumeParsePipelineInput
 ): Promise<ResumeParsePipelineOutput> {
-  const pdfPath = resolveLocalResumePdfPath(input.resumeUrl);
+  const fallbackName = input.candidateName.trim() || "Unknown";
+  const pdfPath =
+    input.pdfPath ??
+    resolveLocalResumePdfPath(input.resumeUrl) ??
+    resolveLocalResumeFilePath(input.resumeUrl);
 
-  if (isAiResumeParseConfigured() && pdfPath) {
-    const ai = await parseResumePdfFile(pdfPath);
-    if (ai.ok) {
-      const structured = structuredFromAiResponse(ai.response);
-      const resultJson = structuredResumeParseToResultJson(
-        structured,
-        input.candidateName.trim() || "Unknown"
-      );
-      return {
-        resultJson,
-        structured,
-        semanticProfileText: buildSemanticProfile(structured, resultJson),
-        parseSource: "ai-service",
-      };
+  const rule = await ruleBasedParse({
+    plainText: input.plainText,
+    fallbackName,
+    pdfPath: pdfPath?.toLowerCase().endsWith(".pdf") ? pdfPath : null,
+    pdfBuffer: input.pdfBuffer ?? null,
+  });
+
+  let llm: LlmParseResult | null = null;
+  let llmSkippedReason: string | null = null;
+  let partialLlmMiss = false;
+
+  const gate = shouldCallLlm({
+    plainText: input.plainText,
+    rule,
+    llmRetryOnly: Boolean(input.llmRetryOnly),
+  });
+
+  if (isAiResumeLlmParseConfigured() && gate.call) {
+    const llmResult = await parseResumeTextWithLlm(input.plainText);
+    if (llmResult.ok) {
+      llm = llmResult.response;
+    } else {
+      partialLlmMiss = true;
+      llmSkippedReason = llmResult.error;
+      console.warn("[resume-parse-pipeline] LLM parse failed: %s", llmResult.error);
     }
-    console.warn(
-      "[resume-parse-pipeline] ai-service parse failed, using heuristic: %s",
-      ai.error
-    );
+  } else if (!isAiResumeLlmParseConfigured()) {
+    llmSkippedReason = "llm_not_configured";
+  } else {
+    llmSkippedReason = gate.reason;
   }
 
-  const heuristic = buildResumeParseResultFromPlainText(
-    input.plainText,
-    input.candidateName
-  );
-  const structured = heuristic.structured ?? null;
+  const merged = mergeResumeParses(rule, llm, fallbackName);
+
+  let strategyUsed: ResumeParseStrategy = "RULE_BASED";
+  if (llm) {
+    strategyUsed = "HYBRID";
+  } else if (input.llmRetryOnly) {
+    strategyUsed = "RULE_BASED";
+  }
+
+  const hybridMeta: HybridParseMeta = {
+    strategyUsed,
+    ruleConfidence: rule.confidence,
+    llmConfidence: llm?.confidence ?? null,
+    disagreementFlags: merged.disagreementFlags,
+    llmSkippedReason,
+    sources: { rule, llm },
+  };
+
+  const resultJson = mergedToResultJson(merged, hybridMeta);
 
   return {
-    resultJson: structured
-      ? structuredResumeParseToResultJson(structured, heuristic.name)
-      : heuristic,
-    structured,
-    semanticProfileText: buildSemanticProfile(structured, heuristic),
-    parseSource: "heuristic",
+    resultJson,
+    structured: merged.structured,
+    semanticProfileText: buildSemanticProfile(merged.structured, resultJson),
+    parseSource: llm ? "hybrid" : rule.parser === "open-resume" ? "rule-based" : "heuristic",
+    strategyUsed,
+    ruleConfidence: rule.confidence,
+    llmConfidence: llm?.confidence ?? null,
+    disagreementFlags: merged.disagreementFlags,
+    partialLlmMiss,
+    llmSkippedReason,
+    hybridMeta,
   };
 }
 
@@ -108,15 +166,11 @@ export type FinalizeResumeParseParams = {
   pipeline: ResumeParsePipelineOutput;
 };
 
-/**
- * After parse: sync candidate columns, complete job storage, enqueue embedding worker.
- */
 export function buildParseJobResultJson(
   pipeline: ResumeParsePipelineOutput
 ): Prisma.InputJsonValue {
   const value: unknown = pipeline.resultJson;
   if (isResumeParseResult(value)) {
-    // Ensure we never persist `undefined` values (Prisma JSON strips them → `{}`).
     return {
       name: value.name ?? "Unknown",
       skills: Array.isArray(value.skills) ? value.skills : [],
@@ -128,6 +182,7 @@ export function buildParseJobResultJson(
         summary: typeof value.experience?.summary === "string" ? value.experience.summary : "",
       },
       ...(value.structured ? { structured: value.structured } : {}),
+      ...(value.hybrid ? { hybrid: value.hybrid } : {}),
     } as unknown as Prisma.InputJsonValue;
   }
   return {

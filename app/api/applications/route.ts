@@ -10,9 +10,10 @@ import {
   buildApplicationCreatedDetails,
   serializeActivityLogDetails,
 } from "@/src/lib/activity-log-details";
-import { dedupeApplicationsByCandidateIdentity } from "@/src/lib/candidate-identity";
 import { prisma } from "@/src/lib/prisma";
 import { computeResumeSha256HexFromResumeUrl } from "@/src/lib/resume-file-hash";
+import { parseJobResumeMatchMeta } from "@/src/lib/job-resume-match-config";
+import { isResumeParseReady } from "@/src/lib/queue-job-status";
 import { computeSkillMatchPercent } from "@/src/lib/resume-job-match";
 import {
   notifyRecruitersApplicationCreated,
@@ -159,10 +160,17 @@ export async function GET(request: Request) {
     ...(where.candidate ? { candidate: where.candidate } : {}),
   };
 
-  const rawRows = await prisma.application.findMany({
+  // Use DB-level pagination (skip/take + count) so totalApplications is accurate
+  // even when the full result set exceeds 500 rows. The @@unique([candidateId, jobId])
+  // constraint on Application means true duplicates cannot exist, making the in-memory
+  // dedupeApplicationsByCandidateIdentity() a no-op — removed to fix the bug.
+  const [totalApplications, data] = await Promise.all([
+    prisma.application.count({ where: prismaWhere }),
+    prisma.application.findMany({
       where: prismaWhere,
       orderBy: { appliedDate: "desc" },
-      take: 500,
+      skip: offset,
+      take: limit,
       select: {
         id: true,
         candidateId: true,
@@ -170,6 +178,7 @@ export async function GET(request: Request) {
         stage: true,
         rating: true,
         rejectionReason: true,
+        notes: true,
         appliedDate: true,
         interviewDate: true,
         feedback: true,
@@ -179,11 +188,8 @@ export async function GET(request: Request) {
         candidate: true,
         job: true,
       },
-    });
-
-  const deduped = dedupeApplicationsByCandidateIdentity(rawRows);
-  const data = deduped.slice(offset, offset + limit);
-  const totalApplications = deduped.length;
+    }),
+  ]);
 
   const totalPages = totalApplications === 0 ? 0 : Math.ceil(totalApplications / limit);
 
@@ -248,28 +254,15 @@ export async function POST(request: Request) {
     return apiError("FORBIDDEN", "Applications are only allowed for open jobs", 403);
   }
 
-  // Resume eligibility gate (non-LLM): candidate can apply only if resume parse for the current resume is COMPLETED
-  // and parse output was applied to CandidateSkill, then skill match >= threshold (jobMeta.resumeMatchThreshold).
-  const jobMetaObj =
-    job.jobMeta != null && typeof job.jobMeta === "object" && !Array.isArray(job.jobMeta)
-      ? (job.jobMeta as Record<string, unknown>)
-      : null;
-  const thresholdRaw = jobMetaObj?.resumeMatchThreshold;
-  const threshold =
-    thresholdRaw === null || thresholdRaw === undefined || thresholdRaw === ""
-      ? null
-      : Number(thresholdRaw);
-  const requiredSkillsRaw = jobMetaObj?.requiredSkills;
-  const requiredSkills = Array.isArray(requiredSkillsRaw)
-    ? requiredSkillsRaw.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean)
-    : [];
+  // Skill-match gate: allow apply while parse is queued; block only when parse finished and score is below threshold.
+  const { requiredSkills, effectiveThreshold } = parseJobResumeMatchMeta(job.jobMeta);
 
-  if (threshold != null && Number.isFinite(threshold) && threshold > 0 && requiredSkills.length > 0) {
+  if (effectiveThreshold != null && requiredSkills.length > 0) {
     const resumeUrl = typeof candidate.resumeUrl === "string" ? candidate.resumeUrl.trim() : "";
     if (!resumeUrl) {
       return apiError("NOT_ELIGIBLE", "Not eligible for this role (resume not uploaded).", 403, {
         reason: "NO_RESUME",
-        requiredThreshold: threshold,
+        requiredThreshold: effectiveThreshold,
       });
     }
 
@@ -278,43 +271,34 @@ export async function POST(request: Request) {
       const reason = hashed.reason === "INVALID_URL" ? "INVALID_RESUME_REFERENCE" : "RESUME_FILE_MISSING";
       return apiError("NOT_ELIGIBLE", "Not eligible for this role (resume must be re-uploaded).", 403, {
         reason,
-        requiredThreshold: threshold,
+        requiredThreshold: effectiveThreshold,
       });
     }
 
-    const done = await prisma.resumeParseJob.findFirst({
-      where: { candidateId, fileHash: hashed.hash, status: "COMPLETED" },
+    const parseJob = await prisma.resumeParseJob.findFirst({
+      where: { candidateId, fileHash: hashed.hash },
       orderBy: { createdAt: "desc" },
-      select: { id: true },
+      select: { id: true, status: true },
     });
-    if (!done) {
-      return apiError("NOT_ELIGIBLE", "Not eligible for this role (resume parse not completed).", 403, {
-        reason: "PARSE_NOT_DONE",
-        requiredThreshold: threshold,
-      });
-    }
 
-    const skills = await prisma.candidateSkill.findMany({
-      where: { candidateId },
-      select: { skillName: true },
-      take: 500,
-    });
-    const candidateSkills = skills.map((s) => s.skillName);
-    if (candidateSkills.length === 0) {
-      return apiError("NOT_ELIGIBLE", "Not eligible for this role (resume parse not applied to candidate skills).", 403, {
-        reason: "PARSE_NOT_APPLIED",
-        requiredThreshold: threshold,
+    if (parseJob && isResumeParseReady(parseJob.status)) {
+      const skills = await prisma.candidateSkill.findMany({
+        where: { candidateId },
+        select: { skillName: true },
+        take: 500,
       });
-    }
-
-    const match = computeSkillMatchPercent({ requiredSkills, candidateSkills });
-    if (match.percent < threshold) {
-      return apiError("NOT_ELIGIBLE", "Not eligible for this role.", 403, {
-        requiredThreshold: threshold,
-        matchPercent: match.percent,
-        requiredSkillsCount: match.required,
-        matchedSkillsCount: match.matched,
-      });
+      const candidateSkills = skills.map((s) => s.skillName);
+      if (candidateSkills.length > 0) {
+        const match = computeSkillMatchPercent({ requiredSkills, candidateSkills });
+        if (match.percent < effectiveThreshold) {
+          return apiError("NOT_ELIGIBLE", "Not eligible for this role.", 403, {
+            requiredThreshold: effectiveThreshold,
+            matchPercent: match.percent,
+            requiredSkillsCount: match.required,
+            matchedSkillsCount: match.matched,
+          });
+        }
+      }
     }
   }
 

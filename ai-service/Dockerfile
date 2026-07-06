@@ -12,6 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Model caches live outside /app so dev bind-mounts (./ai-service:/app) do not hide them.
+ENV HF_HOME=/var/cache/aiservice/huggingface \
+    TRANSFORMERS_CACHE=/var/cache/aiservice/huggingface \
+    SENTENCE_TRANSFORMERS_HOME=/var/cache/aiservice/sentence-transformers
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Install Python dependencies
 # ─────────────────────────────────────────────────────────────────────────────
@@ -26,7 +31,8 @@ RUN pip install --no-cache-dir \
 # Pre-download the embedding model and spaCy model at build time
 # (avoids cold-start delay when container first starts)
 # ─────────────────────────────────────────────────────────────────────────────
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" && \
+RUN mkdir -p /var/cache/aiservice/huggingface /app/uploads/resumes && \
+    python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" && \
     python -m spacy download en_core_web_sm
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -34,16 +40,18 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 # ─────────────────────────────────────────────────────────────────────────────
 COPY . .
 
-# Non-root user
-RUN useradd --system --uid 1001 aiservice && \
-    mkdir -p /app/uploads/resumes && \
-    chown -R aiservice /app
+# Non-root runtime via entrypoint (root prepares cache dirs, then drops privileges)
+RUN useradd --system --uid 1001 --create-home --home-dir /home/aiservice aiservice && \
+    mkdir -p /var/cache/aiservice/huggingface /app/uploads/resumes && \
+    chown -R aiservice:aiservice /app /var/cache/aiservice /home/aiservice
 
-USER aiservice
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
     CMD curl -f http://localhost:8000/health || exit 1
 
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

@@ -21,11 +21,11 @@ def _resume_base_path() -> Path | None:
     "/parse-resume",
     response_model=ParseResumeResponse,
     response_model_by_alias=True,
-    summary="Extract résumé text and canonical structured parse (schema v10)",
+    summary="Extract resume text and canonical structured parse (schema v10)",
 )
 def parse_resume(body: ParseResumeRequest) -> ParseResumeResponse:
     """
-    Read a PDF résumé from `filePath`, return cleaned plain text and structured fields.
+    Read a PDF resume from `filePath`, return cleaned plain text and structured fields.
 
   **Response (camelCase):** `rawText`, `schemaVersion`, `skills`, `normalizedSkills`,
   `companies`, `currentDesignation`, `education`, `certifications`, `totalExperience`,
@@ -49,5 +49,5 @@ def parse_resume(body: ParseResumeRequest) -> ParseResumeResponse:
     except OSError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to read résumé file: {exc}",
+            detail=f"Failed to read resume file: {exc}",
         ) from exc

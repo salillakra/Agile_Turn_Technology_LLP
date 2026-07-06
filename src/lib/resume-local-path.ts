@@ -6,7 +6,7 @@ import {
 } from "@/src/lib/resume-storage";
 
 /**
- * Resolve absolute filesystem path for a locally stored résumé (`Candidate.resumeUrl`).
+ * Resolve absolute filesystem path for a locally stored resume (`Candidate.resumeUrl`).
  * Returns `null` for external URLs or unsupported references.
  */
 export function resolveLocalResumeFilePath(resumeUrl: string): string | null {
@@ -31,7 +31,7 @@ export function resolveLocalResumeFilePath(resumeUrl: string): string | null {
   return full;
 }
 
-/** Absolute path when the stored résumé is a PDF readable by ai-service `/parse-resume`. */
+/** Absolute path when the stored resume is a PDF readable by ai-service `/parse-resume`. */
 export function resolveLocalResumePdfPath(resumeUrl: string): string | null {
   const full = resolveLocalResumeFilePath(resumeUrl);
   if (!full) return null;

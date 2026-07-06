@@ -11,6 +11,7 @@ export const QUEUE_JOB_STATUS = {
   PENDING: "PENDING",
   PROCESSING: "PROCESSING",
   COMPLETED: "COMPLETED",
+  PARTIAL: "PARTIAL",
   FAILED: "FAILED",
 } as const;
 
@@ -34,7 +35,11 @@ export function isQueueJobActive(status: string | null | undefined): boolean {
   return status != null && ACTIVE.has(status as QueueJobStatus);
 }
 
-/** Résumé parse ready for apply / eligibility (supports legacy `DONE` reads during migration). */
+/** resume parse ready for apply / eligibility (supports legacy `DONE` reads during migration). */
 export function isResumeParseReady(status: string | null | undefined): boolean {
-  return status === QUEUE_JOB_STATUS.COMPLETED || status === "DONE";
+  return (
+    status === QUEUE_JOB_STATUS.COMPLETED ||
+    status === QUEUE_JOB_STATUS.PARTIAL ||
+    status === "DONE"
+  );
 }

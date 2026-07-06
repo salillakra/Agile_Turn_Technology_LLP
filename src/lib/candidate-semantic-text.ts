@@ -83,7 +83,7 @@ export type ParseSemanticProfileInput = {
 
 /**
  * Build embeddable text from NLP parse outputs (skills, summary, designation, experience).
- * Used immediately after résumé parse before the embedding worker runs.
+ * Used immediately after resume parse before the embedding worker runs.
  */
 export function buildCandidateSemanticTextFromParse(
   input: ParseSemanticProfileInput

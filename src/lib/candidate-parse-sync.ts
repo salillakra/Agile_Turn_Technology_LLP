@@ -62,7 +62,10 @@ export async function syncCandidateFromResumeParse(
     skills: rawSkills,
     normalizedSkills,
     totalExperience: years,
-    relevantExperience: years,
+    // Note: relevantExperience is intentionally NOT set here.
+    // The parser only knows total experience; relevant experience is job-specific
+    // and should only be set by a recruiter — overwriting it here would destroy
+    // manually entered values.
     summary: profile.summary,
     companies: profile.companies,
     education: educationToPrismaJson(profile.education),

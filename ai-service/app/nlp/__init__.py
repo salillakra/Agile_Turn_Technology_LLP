@@ -1,4 +1,4 @@
-"""NLP utilities for résumé parsing."""
+"""NLP utilities for resume parsing."""
 
 from app.nlp.company_extraction import CompanyExtractionResult, extract_companies_from_text
 from app.nlp.designation_extraction import (

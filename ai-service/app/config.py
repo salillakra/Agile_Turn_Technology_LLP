@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     # Future: shared secret for service-to-service calls from Next.js BFF/API routes.
     service_api_key: str | None = None
 
+    # Gemini LLM resume parse (POST /parse-resume/llm)
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.0-flash"
+    llm_resume_max_chars: int = 14_000
+    llm_resume_timeout_sec: float = 45.0
+
 
 @lru_cache
 def get_settings() -> Settings:

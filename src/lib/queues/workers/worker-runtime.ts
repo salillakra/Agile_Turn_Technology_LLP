@@ -14,6 +14,7 @@ import {
   logWorkerRuntimeError,
   wrapJobProcessor,
 } from "@/src/lib/queues/workers/worker-processor";
+import { workerLogger } from "@/src/lib/logger";
 
 export type WorkerRuntimeOptions = {
   /** Logical name for logs (e.g. `resume-parsing`). */
@@ -36,6 +37,7 @@ export function createQueueWorker<TData>(
 ): Worker<TData> {
   assertValidBullMqQueueName(queueName);
   const workerName = runtime.name;
+  const log = workerLogger(workerName);
 
   const options: WorkerOptions = {
     connection,
@@ -44,8 +46,9 @@ export function createQueueWorker<TData>(
   };
 
   if (runtime.limiter) {
-    console.info(
-      `[worker:${workerName}] rate limiter max=${runtime.limiter.max} per ${runtime.limiter.duration}ms`
+    log.info(
+      { max: runtime.limiter.max, durationMs: runtime.limiter.duration },
+      "rate limiter configured"
     );
   }
 
@@ -61,12 +64,12 @@ export function createQueueWorker<TData>(
       logJobRetryActive(workerName, job);
       recordQueueJobRetry(queueName, workerName, job);
     } else {
-      console.info(`[worker:${workerName}] active job=${job.id} name=${job.name}`);
+      log.info({ jobId: job.id, jobName: job.name }, "job active");
     }
   });
 
   worker.on("completed", (job) => {
-    console.info(`[worker:${workerName}] completed job=${job.id}`);
+    log.info({ jobId: job.id }, "job completed");
     recordQueueJobCompleted(queueName, workerName, job);
   });
 
@@ -74,15 +77,17 @@ export function createQueueWorker<TData>(
     if (isJobPermanentlyFailedForMetrics(job, error)) {
       recordQueueJobFailed(queueName, workerName, job);
     }
+    log.warn({ jobId: job?.id, err: error }, "job failed");
     void handleQueueJobFailedEvent(workerName, queueName, job, error);
   });
 
   worker.on("error", (error) => {
     logWorkerRuntimeError(workerName, error);
+    log.error({ err: error }, "worker runtime error");
   });
 
   worker.on("stalled", (jobId) => {
-    console.warn(`[worker:${workerName}] stalled job=${jobId}`);
+    log.warn({ jobId }, "job stalled");
     recordQueueJobStalled(queueName, workerName, jobId);
   });
 

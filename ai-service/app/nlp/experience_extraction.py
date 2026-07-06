@@ -1,5 +1,5 @@
 """
-Extract years of experience, job date ranges, and narrative summary from résumé text.
+Extract years of experience, job date ranges, and narrative summary from resume text.
 
 Uses dateparser for heterogeneous dates and regex + optional spaCy for section/role cues.
 """

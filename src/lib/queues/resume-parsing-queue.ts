@@ -1,5 +1,5 @@
 /**
- * BullMQ queue for asynchronous résumé parsing.
+ * BullMQ queue for asynchronous resume parsing.
  *
  * Producers: upload/parse API routes enqueue `{ candidateId, resumeUrl }`.
  * Consumers: `workers/processors/` (not implemented yet).
@@ -13,7 +13,7 @@ import { getQueueConnectionOptions } from "@/src/lib/queues/redis";
 import { BULLMQ_QUEUE_NAMES } from "@/src/lib/queues/queue-names";
 import { sanitizeBullmqJobId } from "@/src/lib/queues/bullmq-job-id";
 
-/** Redis queue name for résumé parsing workers (no `:` — BullMQ v5+ restriction). */
+/** Redis queue name for resume parsing workers (no `:` — BullMQ v5+ restriction). */
 export const RESUME_PARSING_QUEUE_NAME = BULLMQ_QUEUE_NAMES.RESUME_PARSING;
 
 /** BullMQ job name routed to the parse processor. */
@@ -23,6 +23,9 @@ export const RESUME_PARSING_JOB_NAME = "resume.parse" as const;
 export type ResumeParsingJobPayload = {
   candidateId: string;
   resumeUrl: string;
+  /** When set, worker re-runs pipeline LLM-only enrichment for an existing parse job. */
+  parseJobId?: string;
+  llmRetryOnly?: boolean;
 };
 
 export type EnqueueResumeParsingJobOptions = DelayedJobScheduleOptions & {
@@ -44,7 +47,7 @@ function resumeParsingQueueOptions(): QueueOptions {
   };
 }
 
-/** Lazily created BullMQ `Queue` for résumé parsing. */
+/** Lazily created BullMQ `Queue` for resume parsing. */
 export function getResumeParsingQueue(): Queue<ResumeParsingJobPayload> {
   if (!queueInstance) {
     queueInstance = new Queue<ResumeParsingJobPayload>(
@@ -60,7 +63,7 @@ function defaultJobId(payload: ResumeParsingJobPayload): string {
 }
 
 /**
- * Enqueue a résumé parse job. Returns BullMQ job id.
+ * Enqueue a resume parse job. Returns BullMQ job id.
  * Does not run parsing — worker consumes the queue later.
  */
 export async function enqueueResumeParsingJob(

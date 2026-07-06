@@ -9,7 +9,7 @@ STRUCTURED_RESUME_PARSE_SCHEMA_VERSION = 10
 
 
 class ParseResumeRequest(BaseModel):
-    """Path to a PDF résumé readable by this service (local or shared volume)."""
+    """Path to a PDF resume readable by this service (local or shared volume)."""
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -17,7 +17,7 @@ class ParseResumeRequest(BaseModel):
         ...,
         alias="filePath",
         min_length=1,
-        description="Absolute or base-relative path to a .pdf résumé file",
+        description="Absolute or base-relative path to a .pdf resume file",
     )
 
 
@@ -36,7 +36,7 @@ class ResumeEducationEntry(BaseModel):
 
 class StructuredResumeParse(BaseModel):
     """
-    Canonical structured résumé parse (fixed field set).
+    Canonical structured resume parse (fixed field set).
 
     Used by POST /parse-resume and intended to match the ATS `StructuredResumeParse`
     TypeScript contract. Do not add ad-hoc keys without bumping `schemaVersion`.
@@ -51,7 +51,7 @@ class StructuredResumeParse(BaseModel):
     )
     skills: list[str] = Field(
         default_factory=list,
-        description="Raw skill labels as detected in the résumé",
+        description="Raw skill labels as detected in the resume",
     )
     normalized_skills: list[str] = Field(
         default_factory=list,

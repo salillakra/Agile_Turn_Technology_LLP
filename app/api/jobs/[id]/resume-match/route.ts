@@ -6,6 +6,8 @@ import { canCreateCandidate } from "@/src/lib/rbac";
 import { canAccessJobByScope, buildCandidateVisibilityWhere } from "@/src/lib/rbac-scope";
 import { isValidCuid } from "@/src/lib/validate-id";
 import { computeResumeSha256HexFromResumeUrl } from "@/src/lib/resume-file-hash";
+import { parseJobResumeMatchMeta } from "@/src/lib/job-resume-match-config";
+import { isResumeParseReady } from "@/src/lib/queue-job-status";
 import { computeSkillMatchPercent } from "@/src/lib/resume-job-match";
 
 export type ResumeMatchResponseBody = {
@@ -24,38 +26,11 @@ export type ResumeMatchResponseBody = {
   matchPercent: number | null;
   requiredSkillsCount: number | null;
   matchedSkillsCount: number | null;
-  /** Debug fields (kept lightweight). */
   requiredSkills?: string[];
   candidateSkillsSample?: string[];
 };
 
-function parseJobMeta(jobMeta: unknown): {
-  threshold: number | null;
-  requiredSkills: string[];
-} {
-  const obj =
-    jobMeta != null && typeof jobMeta === "object" && !Array.isArray(jobMeta)
-      ? (jobMeta as Record<string, unknown>)
-      : null;
-  const thresholdRaw = obj?.resumeMatchThreshold;
-  const threshold =
-    thresholdRaw === null || thresholdRaw === undefined || thresholdRaw === ""
-      ? null
-      : Number(thresholdRaw);
-  const requiredSkillsRaw = obj?.requiredSkills;
-  const requiredSkills = Array.isArray(requiredSkillsRaw)
-    ? requiredSkillsRaw
-        .filter((x): x is string => typeof x === "string")
-        .map((x) => x.trim())
-        .filter(Boolean)
-    : [];
-  return {
-    threshold: threshold != null && Number.isFinite(threshold) ? threshold : null,
-    requiredSkills,
-  };
-}
-
-/** GET /api/jobs/[id]/resume-match?candidateId=... — compute eligibility + match % (non-LLM). */
+/** GET /api/jobs/[id]/resume-match?candidateId=... — recruiter eligibility + match % */
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireApiAuth(canCreateCandidate);
   if (auth instanceof NextResponse) return auth;
@@ -83,10 +58,11 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!job) return apiError("NOT_FOUND", "Job not found", 404);
   if (!candidate) return apiError("NOT_FOUND", "Candidate not found", 404);
 
-  const { threshold, requiredSkills } = parseJobMeta(job.jobMeta);
-  if (threshold == null || threshold <= 0) {
+  const { threshold, requiredSkills, effectiveThreshold } = parseJobResumeMatchMeta(job.jobMeta);
+
+  if (effectiveThreshold == null) {
     const body: ResumeMatchResponseBody = {
-      eligible: true,
+      eligible: requiredSkills.length === 0,
       reason: "THRESHOLD_NOT_CONFIGURED",
       requiredThreshold: threshold,
       matchPercent: null,
@@ -95,11 +71,12 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     };
     return NextResponse.json(body);
   }
+
   if (requiredSkills.length === 0) {
     const body: ResumeMatchResponseBody = {
       eligible: true,
       reason: "JOB_HAS_NO_REQUIRED_SKILLS",
-      requiredThreshold: threshold,
+      requiredThreshold: effectiveThreshold,
       matchPercent: null,
       requiredSkillsCount: 0,
       matchedSkillsCount: null,
@@ -112,7 +89,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const body: ResumeMatchResponseBody = {
       eligible: false,
       reason: "NO_RESUME",
-      requiredThreshold: threshold,
+      requiredThreshold: effectiveThreshold,
       matchPercent: null,
       requiredSkillsCount: requiredSkills.length,
       matchedSkillsCount: null,
@@ -125,7 +102,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const body: ResumeMatchResponseBody = {
       eligible: false,
       reason: hashed.reason === "INVALID_URL" ? "INVALID_RESUME_REFERENCE" : "RESUME_FILE_MISSING",
-      requiredThreshold: threshold,
+      requiredThreshold: effectiveThreshold,
       matchPercent: null,
       requiredSkillsCount: requiredSkills.length,
       matchedSkillsCount: null,
@@ -133,16 +110,16 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     return NextResponse.json(body, { status: 200 });
   }
 
-  const done = await prisma.resumeParseJob.findFirst({
-    where: { candidateId, fileHash: hashed.hash, status: "COMPLETED" },
+  const parseJob = await prisma.resumeParseJob.findFirst({
+    where: { candidateId, fileHash: hashed.hash },
     orderBy: { createdAt: "desc" },
-    select: { id: true },
+    select: { id: true, status: true },
   });
-  if (!done) {
+  if (!parseJob || !isResumeParseReady(parseJob.status)) {
     const body: ResumeMatchResponseBody = {
       eligible: false,
       reason: "PARSE_NOT_DONE",
-      requiredThreshold: threshold,
+      requiredThreshold: effectiveThreshold,
       matchPercent: null,
       requiredSkillsCount: requiredSkills.length,
       matchedSkillsCount: null,
@@ -160,7 +137,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const body: ResumeMatchResponseBody = {
       eligible: false,
       reason: "PARSE_NOT_APPLIED",
-      requiredThreshold: threshold,
+      requiredThreshold: effectiveThreshold,
       matchPercent: null,
       requiredSkillsCount: requiredSkills.length,
       matchedSkillsCount: null,
@@ -170,11 +147,11 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 
   const match = computeSkillMatchPercent({ requiredSkills, candidateSkills });
   const debugCandidateSample = candidateSkills.slice(0, 30);
-  if (match.percent < threshold) {
+  if (match.percent < effectiveThreshold) {
     const body: ResumeMatchResponseBody = {
       eligible: false,
       reason: "BELOW_THRESHOLD",
-      requiredThreshold: threshold,
+      requiredThreshold: effectiveThreshold,
       matchPercent: match.percent,
       requiredSkillsCount: match.required,
       matchedSkillsCount: match.matched,
@@ -187,7 +164,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const body: ResumeMatchResponseBody = {
     eligible: true,
     reason: "OK",
-    requiredThreshold: threshold,
+    requiredThreshold: effectiveThreshold,
     matchPercent: match.percent,
     requiredSkillsCount: match.required,
     matchedSkillsCount: match.matched,
@@ -196,4 +173,3 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   };
   return NextResponse.json(body);
 }
-

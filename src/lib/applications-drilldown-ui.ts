@@ -28,10 +28,12 @@ export type ApplicationsApiListRow = {
   jobId: string;
   stage: ApplicationStage;
   rating: number | null;
+  notes: string | null;
   candidate: {
     id: string;
     candidateName: string;
     email: string;
+    contactNumber: string | null;
     candidateSource: CandidateSource | null;
   };
   job: { id: string; title: string; department: string };
@@ -41,10 +43,11 @@ export type ApplicationsApiListRow = {
 export type ApplicantListItem = {
   /** Application id (pipeline row). */
   id: string;
-  /** Candidate id — use for `/api/candidates/[id]/*` (résumé, parse). Present when row is from API. */
+  /** Candidate id — use for `/api/candidates/[id]/*` (resume, parse). Present when row is from API. */
   candidateId?: string;
   name: string;
   email: string;
+  phone: string;
   jobId: string;
   jobTitle: string;
   dept: string;
@@ -65,6 +68,7 @@ export function mapApplicationsApiRowToApplicantItem(row: ApplicationsApiListRow
     candidateId: row.candidate.id,
     name: row.candidate.candidateName,
     email: row.candidate.email,
+    phone: row.candidate.contactNumber?.trim() ?? "",
     jobId: row.jobId,
     jobTitle: row.job.title,
     dept: row.job.department,
@@ -73,7 +77,7 @@ export function mapApplicationsApiRowToApplicantItem(row: ApplicationsApiListRow
     rating: row.rating ?? 0,
     appliedDate: "",
     lastActivity: "",
-    notes: "",
+    notes: row.notes?.trim() ?? "",
     tags: [],
     ttFill: 0,
   };

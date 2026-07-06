@@ -18,14 +18,22 @@ import { canCreateCandidate } from "@/src/lib/rbac";
  */
 
 function formatScore(value) {
-  return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : null;
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.round(value)
+    : null;
 }
 
 function resolveAiReason(row) {
-  if (typeof row.aiRecommendationReason === "string" && row.aiRecommendationReason.trim()) {
+  if (
+    typeof row.aiRecommendationReason === "string" &&
+    row.aiRecommendationReason.trim()
+  ) {
     return row.aiRecommendationReason.trim();
   }
-  if (typeof row.recommendationReason === "string" && row.recommendationReason.trim()) {
+  if (
+    typeof row.recommendationReason === "string" &&
+    row.recommendationReason.trim()
+  ) {
     const first = row.recommendationReason.split(/(?<=[.!?])\s+/)[0]?.trim();
     if (first) return first.replace(/\.$/, "");
   }
@@ -68,15 +76,24 @@ export default function RecommendedRolesPanel({
     setLoading(true);
     setFetchError("");
     try {
-      const res = await fetch(`/api/candidates/${encodeURIComponent(candidateId)}/recommendations`, {
-        credentials: "same-origin",
-      });
+      const res = await fetch(
+        `/api/candidates/${encodeURIComponent(candidateId)}/recommendations`,
+        {
+          credentials: "same-origin",
+        },
+      );
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         const msg =
-          body && typeof body === "object" && "message" in body && typeof body.message === "string"
+          body &&
+          typeof body === "object" &&
+          "message" in body &&
+          typeof body.message === "string"
             ? body.message
-            : body && typeof body === "object" && "error" in body && typeof body.error === "string"
+            : body &&
+                typeof body === "object" &&
+                "error" in body &&
+                typeof body.error === "string"
               ? body.error
               : `Failed to load recommendations (${res.status})`;
         throw new Error(msg);
@@ -88,12 +105,14 @@ export default function RecommendedRolesPanel({
             r &&
             typeof r === "object" &&
             typeof r.jobId === "string" &&
-            typeof r.title === "string"
-        )
+            typeof r.title === "string",
+        ),
       );
       setSelected(new Set());
     } catch (e) {
-      setFetchError(e instanceof Error ? e.message : "Failed to load recommendations");
+      setFetchError(
+        e instanceof Error ? e.message : "Failed to load recommendations",
+      );
       setItems([]);
     } finally {
       setLoading(false);
@@ -106,7 +125,7 @@ export default function RecommendedRolesPanel({
 
   const allSelected = useMemo(
     () => items.length > 0 && items.every((row) => selected.has(row.jobId)),
-    [items, selected]
+    [items, selected],
   );
 
   function toggleSelected(jobId) {
@@ -148,35 +167,39 @@ export default function RecommendedRolesPanel({
               matchScore: row.finalScore,
             })),
           }),
-        }
+        },
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(
-          body?.message || body?.error || `Batch apply failed (${res.status})`
+          body?.message || body?.error || `Batch apply failed (${res.status})`,
         );
       }
 
       const created = typeof body?.created === "number" ? body.created : 0;
       const skippedDuplicates =
-        typeof body?.skippedDuplicates === "number" ? body.skippedDuplicates : 0;
+        typeof body?.skippedDuplicates === "number"
+          ? body.skippedDuplicates
+          : 0;
 
       const parts = [];
       if (created > 0) {
         parts.push(
           created === 1
             ? "1 application created"
-            : `${created} applications created`
+            : `${created} applications created`,
         );
       }
       if (skippedDuplicates > 0) {
         parts.push(
           skippedDuplicates === 1
             ? "1 duplicate skipped"
-            : `${skippedDuplicates} duplicates skipped`
+            : `${skippedDuplicates} duplicates skipped`,
         );
       }
-      setApplyMsg(parts.length ? `${parts.join(" · ")}.` : "No new applications created.");
+      setApplyMsg(
+        parts.length ? `${parts.join(" · ")}.` : "No new applications created.",
+      );
 
       if (created > 0) {
         setSelected(new Set());
@@ -203,17 +226,29 @@ export default function RecommendedRolesPanel({
         <FieldLabel className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
           Recommended roles
         </FieldLabel>
-        <p style={{ margin: "0 0 10px", fontSize: 11, lineHeight: 1.5, color: "var(--text-muted)" }}>
-          AI-ranked open roles from the résumé profile. Select one or more, then apply in bulk —
-          nothing is submitted until you confirm.
+        <p
+          style={{
+            margin: "0 0 10px",
+            fontSize: 11,
+            lineHeight: 1.5,
+            color: "var(--text-muted)",
+          }}
+        >
+          AI-ranked open roles from the resume profile. Select one or more, then
+          apply in bulk — nothing is submitted until you confirm.
         </p>
 
         {loading ? (
-          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>Loading recommendations…</p>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>
+            Loading recommendations…
+          </p>
         ) : null}
 
         {fetchError ? (
-          <p style={{ margin: "8px 0 0", fontSize: 12, color: "#FCA5A5" }} role="alert">
+          <p
+            style={{ margin: "8px 0 0", fontSize: 12, color: "#FCA5A5" }}
+            role="alert"
+          >
             {fetchError}
           </p>
         ) : null}
@@ -264,7 +299,9 @@ export default function RecommendedRolesPanel({
             <div style={{ maxHeight: 280, overflowY: "auto" }}>
               {items.map((row) => {
                 const checked = selected.has(row.jobId);
-                const finalScore = formatScore(row.finalScore ?? row.matchScore);
+                const finalScore = formatScore(
+                  row.finalScore ?? row.matchScore,
+                );
                 const semanticScore = formatScore(row.semanticScore);
                 const semanticAvailable = row.semanticAvailable === true;
                 const aiReason = resolveAiReason(row);
@@ -276,7 +313,9 @@ export default function RecommendedRolesPanel({
                     style={{
                       borderBottom: "1px solid rgba(148,163,184,.12)",
                       padding: "12px",
-                      background: checked ? "rgba(99,102,241,.06)" : "transparent",
+                      background: checked
+                        ? "rgba(99,102,241,.06)"
+                        : "transparent",
                     }}
                   >
                     <label
@@ -306,11 +345,25 @@ export default function RecommendedRolesPanel({
                             color: "var(--text-heading-soft)",
                           }}
                         >
-                          <strong style={{ fontWeight: 600 }}>{row.title}</strong>
+                          <strong style={{ fontWeight: 600 }}>
+                            {row.title}
+                          </strong>
                           {finalScore != null ? (
                             <>
-                              <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>—</span>
-                              <span style={{ color: "var(--accent)", fontWeight: 700 }}>
+                              <span
+                                style={{
+                                  color: "var(--text-muted)",
+                                  fontWeight: 500,
+                                }}
+                              >
+                                —
+                              </span>
+                              <span
+                                style={{
+                                  color: "var(--accent)",
+                                  fontWeight: 700,
+                                }}
+                              >
                                 {finalScore}%
                               </span>
                             </>
@@ -372,13 +425,25 @@ export default function RecommendedRolesPanel({
                             ))}
                           </div>
                         ) : (
-                          <p style={{ margin: "8px 0 0", fontSize: 11, color: "var(--text-muted)" }}>
+                          <p
+                            style={{
+                              margin: "8px 0 0",
+                              fontSize: 11,
+                              color: "var(--text-muted)",
+                            }}
+                          >
                             No explicit skill overlap recorded
                           </p>
                         )}
 
                         {row.missingSkills?.length ? (
-                          <p style={{ margin: "6px 0 0", fontSize: 10, color: "var(--text-muted)" }}>
+                          <p
+                            style={{
+                              margin: "6px 0 0",
+                              fontSize: 10,
+                              color: "var(--text-muted)",
+                            }}
+                          >
                             Gaps: {row.missingSkills.slice(0, 4).join(", ")}
                             {row.missingSkills.length > 4 ? "…" : ""}
                           </p>
@@ -393,11 +458,21 @@ export default function RecommendedRolesPanel({
         ) : null}
 
         {applyMsg ? (
-          <p style={{ margin: "10px 0 0", fontSize: 12, color: "#86EFAC" }}>{applyMsg}</p>
+          <p style={{ margin: "10px 0 0", fontSize: 12, color: "#86EFAC" }}>
+            {applyMsg}
+          </p>
         ) : null}
 
         {canApply && items.length > 0 ? (
-          <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <div
+            style={{
+              marginTop: 12,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              alignItems: "center",
+            }}
+          >
             <Button
               size="sm"
               disabled={applyBusy || selected.size === 0}

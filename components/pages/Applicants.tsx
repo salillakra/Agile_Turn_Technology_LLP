@@ -5,8 +5,19 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { mapApplicationsApiRowToApplicantItem } from "@/src/lib/applications-drilldown-ui";
-import { STAGES, SOURCES, STAGE_META, STAGE_LABEL_TO_API, SOURCE_LABEL_TO_API } from "@/data/mockData";
-import { canCreateCandidate, canEditCandidate, canDeleteCandidate, canReadResume } from "@/src/lib/rbac";
+import {
+  STAGES,
+  SOURCES,
+  STAGE_META,
+  STAGE_LABEL_TO_API,
+  SOURCE_LABEL_TO_API,
+} from "@/data/mockData";
+import {
+  canCreateCandidate,
+  canEditCandidate,
+  canDeleteCandidate,
+  canReadResume,
+} from "@/src/lib/rbac";
 import ResumeCandidateModal from "@/components/ResumeCandidateModal";
 import RecommendedRolesPanel from "@/components/RecommendedRolesPanel";
 import { NOTIFICATIONS_REFRESH_EVENT } from "@/components/NotificationBell";
@@ -16,14 +27,38 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import StarRating from "@/components/ui/StarRating";
 import StageBadge from "@/components/ui/StageBadge";
 import InterviewTimeline from "@/components/InterviewTimeline";
-import { Star, FileText, Calendar, Trash, Pencil, Warning, Plus, MagnifyingGlass, ArrowsClockwise, X } from "@phosphor-icons/react";
+import {
+  Star,
+  FileText,
+  Calendar,
+  Trash,
+  Pencil,
+  Warning,
+  Plus,
+  MagnifyingGlass,
+  ArrowsClockwise,
+  X,
+} from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 
 interface ApplicantsProps {
@@ -33,7 +68,12 @@ interface ApplicantsProps {
   onRefresh: () => Promise<void>;
 }
 
-export default function Applicants({ applicants, setApplicants, jobs, onRefresh }: ApplicantsProps) {
+export default function Applicants({
+  applicants,
+  setApplicants,
+  jobs,
+  onRefresh,
+}: ApplicantsProps) {
   const searchParams = useSearchParams();
   const stageQ = searchParams.get("stage")?.trim() || "";
   const sourceQ = searchParams.get("source")?.trim() || "";
@@ -46,7 +86,10 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
   const [drillDownLoading, setDrillDownLoading] = useState(false);
   const [drillDownErr, setDrillDownErr] = useState<string | null>(null);
 
-  const drillDeps = useMemo(() => [stageQ, sourceQ, jobQ].join("|"), [stageQ, sourceQ, jobQ]);
+  const drillDeps = useMemo(
+    () => [stageQ, sourceQ, jobQ].join("|"),
+    [stageQ, sourceQ, jobQ],
+  );
 
   useEffect(() => {
     if (!stageQ && !sourceQ && !jobQ) {
@@ -102,7 +145,11 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
     tags: "",
   });
 
-  const [resumeModal, setResumeModal] = useState<{ open: boolean; candidateId: string | undefined; name: string }>({
+  const [resumeModal, setResumeModal] = useState<{
+    open: boolean;
+    candidateId: string | undefined;
+    name: string;
+  }>({
     open: false,
     candidateId: undefined,
     name: "",
@@ -114,7 +161,11 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
   const [deleteError, setDeleteError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<any | null>(null);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
-  const [matchState, setMatchState] = useState<{ status: string; score: any; msg: string }>({
+  const [matchState, setMatchState] = useState<{
+    status: string;
+    score: any;
+    msg: string;
+  }>({
     status: "idle",
     score: null,
     msg: "",
@@ -129,6 +180,48 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
   const updateForm = (fields: Partial<typeof form>) => {
     setForm((prev) => ({ ...prev, ...fields }));
   };
+
+  function applicantToForm(a: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    jobId?: string;
+    source?: string;
+    stage?: string;
+    rating?: number;
+    notes?: string;
+    tags?: string[] | string;
+  }) {
+    return {
+      name: a.name ?? "",
+      email: a.email ?? "",
+      phone: a.phone ?? "",
+      jobId: a.jobId ?? jobs[0]?.id ?? "",
+      source: a.source ?? "LinkedIn",
+      stage: a.stage ?? "Applied",
+      rating: typeof a.rating === "number" ? a.rating : 3,
+      notes: a.notes ?? "",
+      tags: Array.isArray(a.tags) ? a.tags.join(", ") : a.tags ?? "",
+    };
+  }
+
+  const positionJobOptions = useMemo(() => {
+    const byId = new Map(jobs.map((j) => [j.id, j]));
+    const jobId = form.jobId?.trim();
+    if (jobId && !byId.has(jobId)) {
+      byId.set(jobId, {
+        id: jobId,
+        title: editData?.jobTitle ?? "Selected position",
+        department: editData?.dept ?? "",
+      });
+    }
+    return [...byId.values()];
+  }, [jobs, form.jobId, editData?.jobTitle, editData?.dept]);
+
+  const selectedJobTitle =
+    positionJobOptions.find((j) => j.id === form.jobId)?.title ??
+    editData?.jobTitle ??
+    "Select position";
 
   const openAdd = () => {
     setEditData(null);
@@ -154,115 +247,185 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
 
   const openEdit = (a: any) => {
     setEditData(a);
-    setForm({
-      ...a,
-      tags: Array.isArray(a.tags) ? a.tags.join(", ") : a.tags || "",
-    });
+    setForm(applicantToForm(a));
+    setSaveError("");
     setModalOpen(true);
   };
 
-  const computeMatchForNewCandidate = async (candidateId: string, jobId: string) => {
-    setMatchState({ status: "working", score: null, msg: "Uploading résumé & parsing…" });
-    if (!resumeFile) throw new Error("Please select a résumé file before saving.");
+  const computeMatchForNewCandidate = async (
+    candidateId: string,
+    jobId: string,
+  ) => {
+    setMatchState({
+      status: "working",
+      score: null,
+      msg: "Uploading resume & parsing…",
+    });
+    if (!resumeFile)
+      throw new Error("Please select a resume file before saving.");
 
     const fd = new FormData();
     fd.set("file", resumeFile);
-    const uploadRes = await fetch(`/api/candidates/${encodeURIComponent(candidateId)}/resume`, {
-      method: "POST",
-      credentials: "same-origin",
-      body: fd,
-    });
+    const uploadRes = await fetch(
+      `/api/candidates/${encodeURIComponent(candidateId)}/resume`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        body: fd,
+      },
+    );
     const uploadBody = await uploadRes.json().catch(() => ({}));
     if (!uploadRes.ok) {
-      throw new Error(uploadBody?.message || uploadBody?.error || `Resume upload failed (${uploadRes.status})`);
+      throw new Error(
+        uploadBody?.message ||
+          uploadBody?.error ||
+          `Resume upload failed (${uploadRes.status})`,
+      );
     }
 
-    const parseRes = await fetch(`/api/candidates/${encodeURIComponent(candidateId)}/resume/parse`, {
-      method: "POST",
-      credentials: "same-origin",
-    });
+    const parseRes = await fetch(
+      `/api/candidates/${encodeURIComponent(candidateId)}/resume/parse`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+      },
+    );
     const parseBody = await parseRes.json().catch(() => ({}));
     if (!parseRes.ok) {
-      throw new Error(parseBody?.message || parseBody?.error || `Parse enqueue failed (${parseRes.status})`);
+      throw new Error(
+        parseBody?.message ||
+          parseBody?.error ||
+          `Parse enqueue failed (${parseRes.status})`,
+      );
     }
 
     const startedAt = Date.now();
     let delay = 800;
     let latest = null;
     while (Date.now() - startedAt < 60_000) {
-      const stRes = await fetch(`/api/candidates/${encodeURIComponent(candidateId)}/parse-status`, {
-        credentials: "same-origin",
-      });
+      const stRes = await fetch(
+        `/api/candidates/${encodeURIComponent(candidateId)}/parse-status`,
+        {
+          credentials: "same-origin",
+        },
+      );
       const stBody = await stRes.json().catch(() => ({}));
       if (!stRes.ok) {
-        throw new Error(stBody?.message || stBody?.error || `Parse status failed (${stRes.status})`);
+        throw new Error(
+          stBody?.message ||
+            stBody?.error ||
+            `Parse status failed (${stRes.status})`,
+        );
       }
       latest = stBody;
       const status = stBody?.status;
       if (status === "COMPLETED" || status === "FAILED") break;
-      setMatchState({ status: "working", score: null, msg: `Parsing résumé… (${String(status || "PENDING")})` });
+      setMatchState({
+        status: "working",
+        score: null,
+        msg: `Parsing resume… (${String(status || "PENDING")})`,
+      });
       await new Promise((r) => setTimeout(r, delay));
       delay = Math.min(5000, Math.round(delay * 1.4));
     }
 
     if (!latest || latest.status !== "COMPLETED") {
-      const msg = latest?.status === "FAILED" ? String(latest?.error || "Parse failed") : "Parse did not complete in time.";
+      const msg =
+        latest?.status === "FAILED"
+          ? String(latest?.error || "Parse failed")
+          : "Parse did not complete in time.";
       throw new Error(msg);
     }
 
-    setMatchState({ status: "working", score: null, msg: "Applying parsed skills…" });
-    const applyRes = await fetch(`/api/candidates/${encodeURIComponent(candidateId)}/resume/parse/apply`, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        resumeParseJobId: latest.resumeParseJobId,
-        result: latest.result,
-      }),
+    setMatchState({
+      status: "working",
+      score: null,
+      msg: "Applying parsed skills…",
     });
+    const applyRes = await fetch(
+      `/api/candidates/${encodeURIComponent(candidateId)}/resume/parse/apply`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resumeParseJobId: latest.resumeParseJobId,
+          result: latest.result,
+        }),
+      },
+    );
     const applyBody = await applyRes.json().catch(() => ({}));
     if (!applyRes.ok) {
-      throw new Error(applyBody?.message || applyBody?.error || `Apply parse failed (${applyRes.status})`);
+      throw new Error(
+        applyBody?.message ||
+          applyBody?.error ||
+          `Apply parse failed (${applyRes.status})`,
+      );
     }
     setParseProfileApplied(true);
     setRecommendationsRefreshKey((k) => k + 1);
 
-    setMatchState({ status: "working", score: null, msg: "Computing match score…" });
+    setMatchState({
+      status: "working",
+      score: null,
+      msg: "Computing match score…",
+    });
     const scoreRes = await fetch(
       `/api/jobs/${encodeURIComponent(jobId)}/resume-match?candidateId=${encodeURIComponent(candidateId)}`,
-      { credentials: "same-origin" }
+      { credentials: "same-origin" },
     );
     const scoreBody = await scoreRes.json().catch(() => ({}));
     if (!scoreRes.ok) {
-      throw new Error(scoreBody?.message || scoreBody?.error || `Score failed (${scoreRes.status})`);
+      throw new Error(
+        scoreBody?.message ||
+          scoreBody?.error ||
+          `Score failed (${scoreRes.status})`,
+      );
     }
 
     setMatchState({
       status: scoreBody?.eligible === true ? "eligible" : "blocked",
       score: scoreBody,
-      msg: scoreBody?.eligible === true ? "Eligible — you can apply." : "Not eligible for this role.",
+      msg:
+        scoreBody?.eligible === true
+          ? "Eligible — you can apply."
+          : "Not eligible for this role.",
     });
     return scoreBody;
   };
 
-  const jobForSelected = useMemo(() => jobs.find((j) => j.id === form.jobId), [jobs, form.jobId]);
+  const jobForSelected = useMemo(
+    () => jobs.find((j) => j.id === form.jobId),
+    [jobs, form.jobId],
+  );
   const jobMetaForSelected = jobForSelected?.jobMeta || null;
   const thresholdForSelected =
-    jobMetaForSelected?.resumeMatchThreshold === null || jobMetaForSelected?.resumeMatchThreshold === undefined || jobMetaForSelected?.resumeMatchThreshold === ""
+    jobMetaForSelected?.resumeMatchThreshold === null ||
+    jobMetaForSelected?.resumeMatchThreshold === undefined ||
+    jobMetaForSelected?.resumeMatchThreshold === ""
       ? null
       : Number(jobMetaForSelected.resumeMatchThreshold);
-  const requiredSkillsCountForSelected = Array.isArray(jobMetaForSelected?.requiredSkills) ? jobMetaForSelected.requiredSkills.length : 0;
+  const requiredSkillsCountForSelected = Array.isArray(
+    jobMetaForSelected?.requiredSkills,
+  )
+    ? jobMetaForSelected.requiredSkills.length
+    : 0;
   const thresholdIsConfigured =
-    thresholdForSelected != null && Number.isFinite(thresholdForSelected) && thresholdForSelected > 0 && requiredSkillsCountForSelected > 0;
+    thresholdForSelected != null &&
+    Number.isFinite(thresholdForSelected) &&
+    thresholdForSelected > 0 &&
+    requiredSkillsCountForSelected > 0;
 
   const parseAndMatchNow = async () => {
     setSaveError("");
     if (!form.name || !form.email || !form.phone || !form.jobId) {
-      setSaveError("Name, email, phone, and position are required before parsing.");
+      setSaveError(
+        "Name, email, phone, and position are required before parsing.",
+      );
       return;
     }
     if (!resumeFile) {
-      setSaveError("Please select a résumé file.");
+      setSaveError("Please select a resume file.");
       return;
     }
     setSaveLoading(true);
@@ -282,14 +445,20 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
         });
         const candidateBody = await candidateRes.json().catch(() => ({}));
         if (!candidateRes.ok) {
-          throw new Error(candidateBody?.message || candidateBody?.error || `Candidate create failed (${candidateRes.status})`);
+          throw new Error(
+            candidateBody?.message ||
+              candidateBody?.error ||
+              `Candidate create failed (${candidateRes.status})`,
+          );
         }
         candidateId = candidateBody.id;
         setDraftCandidateId(candidateId);
       }
       await computeMatchForNewCandidate(candidateId, form.jobId);
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Resume parse/match failed");
+      setSaveError(
+        e instanceof Error ? e.message : "Resume parse/match failed",
+      );
     } finally {
       setSaveLoading(false);
     }
@@ -300,16 +469,115 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
     setSaveError("");
     setSaveLoading(true);
 
+    const readApiError = async (res: Response, fallback: string) => {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(
+        (body as { message?: string; error?: string })?.message ||
+          (body as { message?: string; error?: string })?.error ||
+          `${fallback} (${res.status})`,
+      );
+    };
+
     try {
       if (editData) {
-        setApplicants((prev) =>
-          prev.map((a) =>
-            a.id === editData.id
-              ? { ...a, ...form, tags: (form.tags || "").split(",").map((t) => t.trim()).filter(Boolean) }
-              : a
-          )
+        const applicationId = editData.id as string;
+        const candidateId = editData.candidateId as string | undefined;
+        if (!applicationId) {
+          throw new Error("Missing application id");
+        }
+        if (!candidateId) {
+          throw new Error("Missing candidate id for this application");
+        }
+
+        const candidateRes = await fetch(
+          `/api/candidates/${encodeURIComponent(candidateId)}`,
+          {
+            method: "PUT",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              candidateName: form.name.trim(),
+              email: form.email.trim(),
+              contactNumber: form.phone?.trim() || null,
+              candidateSource: SOURCE_LABEL_TO_API[form.source] ?? "OTHER",
+            }),
+          },
         );
+        if (!candidateRes.ok) {
+          await readApiError(candidateRes, "Candidate update failed");
+        }
+
+        if (form.jobId !== editData.jobId) {
+          const jobRes = await fetch(
+            `/api/applications/${encodeURIComponent(applicationId)}`,
+            {
+              method: "PATCH",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ jobId: form.jobId }),
+            },
+          );
+          if (!jobRes.ok) {
+            await readApiError(jobRes, "Position update failed");
+          }
+        }
+
+        if (form.stage !== editData.stage) {
+          const stageApi = STAGE_LABEL_TO_API[form.stage] ?? "APPLIED";
+          const stageRes = await fetch(
+            `/api/applications/${encodeURIComponent(applicationId)}/stage`,
+            {
+              method: "PATCH",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ stage: stageApi }),
+            },
+          );
+          if (!stageRes.ok) {
+            await readApiError(stageRes, "Stage update failed");
+          }
+        }
+
+        const notesValue = form.notes?.trim() || null;
+        const prevNotes = (editData.notes ?? "").trim() || null;
+        if (notesValue !== prevNotes) {
+          const notesRes = await fetch(
+            `/api/applications/${encodeURIComponent(applicationId)}/notes`,
+            {
+              method: "PATCH",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ notes: notesValue }),
+            },
+          );
+          if (!notesRes.ok) {
+            await readApiError(notesRes, "Notes update failed");
+          }
+        }
+
+        const prevRating =
+          typeof editData.rating === "number" ? editData.rating : null;
+        if (form.rating !== prevRating) {
+          const ratingRes = await fetch(
+            `/api/applications/${encodeURIComponent(applicationId)}/feedback`,
+            {
+              method: "PATCH",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                rating: form.rating >= 1 ? form.rating : null,
+              }),
+            },
+          );
+          if (!ratingRes.ok) {
+            await readApiError(ratingRes, "Rating update failed");
+          }
+        }
+
         setModalOpen(false);
+        setEditData(null);
+        await onRefresh();
+        window.dispatchEvent(new CustomEvent(NOTIFICATIONS_REFRESH_EVENT));
         return;
       }
 
@@ -328,14 +596,18 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
         });
         const candidateBody = await candidateRes.json().catch(() => ({}));
         if (!candidateRes.ok) {
-          throw new Error(candidateBody?.message || candidateBody?.error || `Candidate create failed (${candidateRes.status})`);
+          throw new Error(
+            candidateBody?.message ||
+              candidateBody?.error ||
+              `Candidate create failed (${candidateRes.status})`,
+          );
         }
         candidateId = candidateBody.id;
         setDraftCandidateId(candidateId);
       }
 
       if (thresholdIsConfigured && matchState?.score?.eligible !== true) {
-        throw new Error("Please parse résumé & compute match before saving.");
+        throw new Error("Please parse resume & compute match before saving.");
       }
 
       const stageApi = STAGE_LABEL_TO_API[form.stage] ?? "APPLIED";
@@ -354,7 +626,11 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
       });
       const appBody = await appRes.json().catch(() => ({}));
       if (!appRes.ok) {
-        throw new Error(appBody?.message || appBody?.error || `Application create failed (${appRes.status})`);
+        throw new Error(
+          appBody?.message ||
+            appBody?.error ||
+            `Application create failed (${appRes.status})`,
+        );
       }
 
       setModalOpen(false);
@@ -373,15 +649,20 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
     setDeleteError("");
     setDeleteLoadingId(application.id);
     try {
-      const res = await fetch(`/api/applications/${encodeURIComponent(application.id)}`, {
-        method: "DELETE",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ withdrawnReason: "Removed from pipeline" }),
-      });
+      const res = await fetch(
+        `/api/applications/${encodeURIComponent(application.id)}`,
+        {
+          method: "DELETE",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ withdrawnReason: "Removed from pipeline" }),
+        },
+      );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body?.message || body?.error || `Remove failed (${res.status})`);
+        throw new Error(
+          body?.message || body?.error || `Remove failed (${res.status})`,
+        );
       }
       setApplicants((prev) => prev.filter((a) => a.id !== application.id));
       await onRefresh();
@@ -393,9 +674,16 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
     }
   };
 
-  const baseApplicants = deepLinkTarget ? applicants : drillDownRows !== null ? drillDownRows : applicants;
+  const baseApplicants = deepLinkTarget
+    ? applicants
+    : drillDownRows !== null
+      ? drillDownRows
+      : applicants;
   const filteredApplicants = baseApplicants.filter((a) => {
-    const matchQ = !q || a.name.toLowerCase().includes(q.toLowerCase()) || (a.email && a.email.toLowerCase().includes(q.toLowerCase()));
+    const matchQ =
+      !q ||
+      a.name.toLowerCase().includes(q.toLowerCase()) ||
+      (a.email && a.email.toLowerCase().includes(q.toLowerCase()));
     const matchJob = !fJob || a.jobId === fJob;
     const matchStage = !fStage || a.stage === fStage;
     return matchQ && matchJob && matchStage;
@@ -408,9 +696,18 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
       : `[data-candidate-id="${candidateQ.replace(/"/g, '\\"')}"]`;
     const el = document.querySelector(selector);
     if (el) {
-      requestAnimationFrame(() => el.scrollIntoView({ behavior: "smooth", block: "center" }));
+      requestAnimationFrame(() =>
+        el.scrollIntoView({ behavior: "smooth", block: "center" }),
+      );
     }
-  }, [deepLinkTarget, applicationQ, candidateQ, filteredApplicants, applicants, drillDownRows]);
+  }, [
+    deepLinkTarget,
+    applicationQ,
+    candidateQ,
+    filteredApplicants,
+    applicants,
+    drillDownRows,
+  ]);
 
   useEffect(() => {
     if (applicationQ) setInterviewPanelAppId(applicationQ);
@@ -431,7 +728,13 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
               {(stageQ || sourceQ) && jobQ ? " · " : ""}
               {jobQ ? `jobId=${jobQ}` : ""}
             </span>
-            <Link href="/applicants" className={cn(buttonVariants({ variant: "link", size: "sm" }), "h-auto p-0")}>
+            <Link
+              href="/applicants"
+              className={cn(
+                buttonVariants({ variant: "link", size: "sm" }),
+                "h-auto p-0",
+              )}
+            >
               Clear filters
             </Link>
           </AlertDescription>
@@ -441,7 +744,9 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-primary mb-1">Applicants</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-primary mb-1">
+            Applicants
+          </p>
           <h1 className="text-2xl font-bold tracking-tight">Active Pipeline</h1>
         </div>
         {allowCreate && (
@@ -471,7 +776,9 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
           <SelectContent>
             <SelectItem value="">All Jobs</SelectItem>
             {jobs.map((j) => (
-              <SelectItem key={j.id} value={j.id}>{j.title}</SelectItem>
+              <SelectItem key={j.id} value={j.id}>
+                {j.title}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -483,7 +790,9 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
           <SelectContent>
             <SelectItem value="">All Stages</SelectItem>
             {STAGES.map((s) => (
-              <SelectItem key={s} value={s}>{s}</SelectItem>
+              <SelectItem key={s} value={s}>
+                {s}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -505,12 +814,18 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
       {/* Applicants List */}
       <div className="grid gap-2">
         {drillDownLoading ? (
-          <div className="text-center py-10 text-sm text-muted-foreground">Loading drilldown candidates...</div>
+          <div className="text-center py-10 text-sm text-muted-foreground">
+            Loading drilldown candidates...
+          </div>
         ) : filteredApplicants.length === 0 ? (
-          <div className="text-center py-10 text-sm text-muted-foreground">No applicants matching criteria.</div>
+          <div className="text-center py-10 text-sm text-muted-foreground">
+            No applicants matching criteria.
+          </div>
         ) : (
           filteredApplicants.map((a) => {
-            const isHighlighted = (applicationQ && a.id === applicationQ) || (!applicationQ && candidateQ && a.candidateId === candidateQ);
+            const isHighlighted =
+              (applicationQ && a.id === applicationQ) ||
+              (!applicationQ && candidateQ && a.candidateId === candidateQ);
 
             return (
               <Card
@@ -519,19 +834,25 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
                 data-candidate-id={a.candidateId ?? ""}
                 className={cn(
                   "transition-all hover:border-muted-foreground/30",
-                  isHighlighted && "ring-2 ring-primary border-primary"
+                  isHighlighted && "ring-2 ring-primary border-primary",
                 )}
               >
                 <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className="font-semibold text-sm text-foreground">{a.name}</span>
-                      <span className="text-xs text-muted-foreground truncate">{a.email}</span>
+                      <span className="font-semibold text-sm text-foreground">
+                        {a.name}
+                      </span>
+                      <span className="text-xs text-muted-foreground truncate">
+                        {a.email}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2.5 text-xs text-muted-foreground flex-wrap">
                       <StageBadge stage={a.stage} />
                       <StarRating value={a.rating} />
-                      <span className="font-medium text-primary/80">{a.jobTitle}</span>
+                      <span className="font-medium text-primary/80">
+                        {a.jobTitle}
+                      </span>
                     </div>
                   </div>
 
@@ -540,27 +861,42 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setResumeModal({ open: true, candidateId: a.candidateId, name: a.name })}
+                        onClick={() =>
+                          setResumeModal({
+                            open: true,
+                            candidateId: a.candidateId,
+                            name: a.name,
+                          })
+                        }
                         className="h-8 text-xs"
                       >
                         <FileText className="size-3.5 mr-1" />
-                        Résumé
+                        resume
                       </Button>
                     )}
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => {
-                        setInterviewPanelAppId((prev) => (prev === a.id ? "" : a.id));
+                        setInterviewPanelAppId((prev) =>
+                          prev === a.id ? "" : a.id,
+                        );
                         setInterviewRefreshKey((k) => k + 1);
                       }}
                       className="h-8 text-xs"
                     >
                       <Calendar className="size-3.5 mr-1" />
-                      {interviewPanelAppId === a.id ? "Hide Interviews" : "Interviews"}
+                      {interviewPanelAppId === a.id
+                        ? "Hide Interviews"
+                        : "Interviews"}
                     </Button>
                     {allowEdit && (
-                      <Button variant="ghost" size="sm" onClick={() => openEdit(a)} className="h-8 text-xs">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEdit(a)}
+                        className="h-8 text-xs"
+                      >
                         <Pencil className="size-3.5 mr-1.5" />
                         Edit
                       </Button>
@@ -585,12 +921,18 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
       </div>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={!!confirmDelete} onOpenChange={(open) => !open && setConfirmDelete(null)}>
+      <Dialog
+        open={!!confirmDelete}
+        onOpenChange={(open) => !open && setConfirmDelete(null)}
+      >
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-base">Confirm candidate removal</DialogTitle>
+            <DialogTitle className="text-base">
+              Confirm candidate removal
+            </DialogTitle>
             <DialogDescription className="text-xs">
-              This will withdraw the application and archive it from active pipeline views.
+              This will withdraw the application and archive it from active
+              pipeline views.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-3 p-3 rounded-lg border bg-destructive/10 text-destructive text-xs">
@@ -598,7 +940,11 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
             <span>Are you sure you want to remove {confirmDelete?.name}?</span>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => setConfirmDelete(null)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmDelete(null)}
+            >
               Cancel
             </Button>
             <Button
@@ -629,14 +975,16 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
 
       {/* Add / Edit Form Dialog */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle className="text-base">{editData ? "Edit Applicant" : "Add Applicant"}</DialogTitle>
+            <DialogTitle className="text-base">
+              {editData ? "Edit Applicant" : "Add Applicant"}
+            </DialogTitle>
           </DialogHeader>
 
-          <ScrollArea className="max-h-[480px] pr-2">
-            <div className="grid grid-cols-2 gap-4 py-2">
-              <div className="col-span-2 flex flex-col gap-1.5">
+          <ScrollArea className="max-h-[min(70vh,520px)] pr-2">
+            <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5 sm:col-span-2">
                 <Label htmlFor="c-name">Full Name *</Label>
                 <Input
                   id="c-name"
@@ -646,7 +994,7 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
                 />
               </div>
 
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1.5 sm:col-span-2">
                 <Label htmlFor="c-email">Email</Label>
                 <Input
                   id="c-email"
@@ -668,14 +1016,40 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="c-pos">Position *</Label>
-                <Select value={form.jobId} onValueChange={(v) => updateForm({ jobId: v })}>
-                  <SelectTrigger id="c-pos">
-                    <SelectValue />
+                <Label htmlFor="c-source">Source</Label>
+                <Select
+                  value={form.source}
+                  onValueChange={(v) => updateForm({ source: v })}
+                >
+                  <SelectTrigger id="c-source" className="w-full min-w-0">
+                    <SelectValue placeholder="Select source" />
                   </SelectTrigger>
                   <SelectContent>
-                    {jobs.map((j) => (
-                      <SelectItem key={j.id} value={j.id}>{j.title}</SelectItem>
+                    {SOURCES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="c-pos">Position *</Label>
+                <Select
+                  value={form.jobId}
+                  onValueChange={(v) => updateForm({ jobId: v })}
+                >
+                  <SelectTrigger id="c-pos" className="w-full min-w-0">
+                    <SelectValue placeholder="Select position">
+                      {selectedJobTitle}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {positionJobOptions.map((j) => (
+                      <SelectItem key={j.id} value={j.id}>
+                        {j.title}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -683,43 +1057,38 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
 
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="c-stage">Pipeline Stage</Label>
-                <Select value={form.stage} onValueChange={(v) => updateForm({ stage: v })}>
-                  <SelectTrigger id="c-stage">
-                    <SelectValue />
+                <Select
+                  value={form.stage}
+                  onValueChange={(v) => updateForm({ stage: v })}
+                >
+                  <SelectTrigger id="c-stage" className="w-full min-w-0">
+                    <SelectValue placeholder="Select stage" />
                   </SelectTrigger>
                   <SelectContent>
                     {STAGES.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="c-source">Source</Label>
-                <Select value={form.source} onValueChange={(v) => updateForm({ source: v })}>
-                  <SelectTrigger id="c-source">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SOURCES.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
               {!editData && (
-                <div className="col-span-2 border-y py-3 my-1 space-y-3">
+                <div className="space-y-3 border-y py-3 sm:col-span-2">
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="resume-upload" className="font-semibold">Upload Résumé</Label>
+                    <Label htmlFor="resume-upload" className="font-semibold">
+                      Upload resume
+                    </Label>
                     <input
                       ref={resumeInputRef}
                       id="resume-upload"
                       type="file"
                       accept=".pdf,.doc,.docx"
                       disabled={saveLoading}
-                      onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
+                      onChange={(e) =>
+                        setResumeFile(e.target.files?.[0] ?? null)
+                      }
                       className="text-xs text-muted-foreground file:mr-2 file:rounded-md file:border-0 file:bg-primary/10 file:px-2.5 file:py-1.5 file:text-xs file:font-semibold file:text-primary file:cursor-pointer"
                     />
                   </div>
@@ -731,24 +1100,40 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
                       disabled={saveLoading || !resumeFile}
                       onClick={parseAndMatchNow}
                     >
-                      {matchState.status === "working" ? <ArrowsClockwise className="size-3.5 mr-1.5 animate-spin" /> : null}
+                      {matchState.status === "working" ? (
+                        <ArrowsClockwise className="size-3.5 mr-1.5 animate-spin" />
+                      ) : null}
                       Parse & Score Match
                     </Button>
                     <span className="text-[10px] text-muted-foreground">
-                      {thresholdIsConfigured ? `Req threshold: ${thresholdForSelected}%` : "No match threshold"}
+                      {thresholdIsConfigured
+                        ? `Req threshold: ${thresholdForSelected}%`
+                        : "No match threshold"}
                     </span>
                   </div>
 
                   {matchState.msg && (
-                    <p className="text-[10px] font-medium text-muted-foreground">{matchState.msg}</p>
+                    <p className="text-[10px] font-medium text-muted-foreground">
+                      {matchState.msg}
+                    </p>
                   )}
                   {matchState.score && (
                     <div className="flex gap-2">
-                      <Badge variant={matchState.score.eligible ? "default" : "destructive"}>
+                      <Badge
+                        variant={
+                          matchState.score.eligible ? "default" : "destructive"
+                        }
+                      >
                         Match: {matchState.score.matchPercent}%
                       </Badge>
-                      <Badge variant={matchState.score.eligible ? "outline" : "destructive"}>
-                        {matchState.score.eligible ? "Eligible" : "Not Eligible"}
+                      <Badge
+                        variant={
+                          matchState.score.eligible ? "outline" : "destructive"
+                        }
+                      >
+                        {matchState.score.eligible
+                          ? "Eligible"
+                          : "Not Eligible"}
                       </Badge>
                     </div>
                   )}
@@ -762,7 +1147,9 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
                         userRole={role}
                         onApplied={async () => {
                           await onRefresh();
-                          window.dispatchEvent(new CustomEvent(NOTIFICATIONS_REFRESH_EVENT));
+                          window.dispatchEvent(
+                            new CustomEvent(NOTIFICATIONS_REFRESH_EVENT),
+                          );
                         }}
                       />
                     </div>
@@ -770,12 +1157,15 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
                 </div>
               )}
 
-              <div className="col-span-2 flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1.5 sm:col-span-2">
                 <Label>Rating</Label>
-                <StarRating value={form.rating} onChange={(v: number) => updateForm({ rating: v })} />
+                <StarRating
+                  value={form.rating}
+                  onChange={(v: number) => updateForm({ rating: v })}
+                />
               </div>
 
-              <div className="col-span-2 flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1.5 sm:col-span-2">
                 <Label htmlFor="c-notes">Interview Notes / Review</Label>
                 <Textarea
                   id="c-notes"
@@ -786,8 +1176,13 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
                 />
               </div>
 
-              <div className="col-span-2 flex flex-col gap-1.5">
-                <Label htmlFor="c-tags">Tags <span className="text-muted-foreground">(comma-separated)</span></Label>
+              <div className="flex flex-col gap-1.5 sm:col-span-2">
+                <Label htmlFor="c-tags">
+                  Tags{" "}
+                  <span className="text-muted-foreground">
+                    (comma-separated)
+                  </span>
+                </Label>
                 <Input
                   id="c-tags"
                   value={form.tags}
@@ -800,18 +1195,29 @@ export default function Applicants({ applicants, setApplicants, jobs, onRefresh 
 
           {saveError && (
             <Alert variant="destructive">
-              <AlertDescription className="text-xs">{saveError}</AlertDescription>
+              <AlertDescription className="text-xs">
+                {saveError}
+              </AlertDescription>
             </Alert>
           )}
 
           <DialogFooter className="border-t pt-4">
-            <Button variant="outline" size="sm" onClick={() => setModalOpen(false)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setModalOpen(false)}
+            >
               Cancel
             </Button>
             <Button
               size="sm"
               onClick={handleSave}
-              disabled={saveLoading || (!editData && thresholdIsConfigured && matchState?.score?.eligible !== true)}
+              disabled={
+                saveLoading ||
+                (!editData &&
+                  thresholdIsConfigured &&
+                  matchState?.score?.eligible !== true)
+              }
             >
               {saveLoading ? "Saving…" : "Save Candidate"}
             </Button>

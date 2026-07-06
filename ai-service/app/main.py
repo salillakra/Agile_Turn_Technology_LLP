@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from app.config import get_settings
 from app.embedding_model import load_embedding_model
 from app.nlp_pipeline import load_nlp_pipeline
-from app.routes import embed, health, parse_resume, similarity
+from app.routes import embed, health, parse_resume, parse_resume_llm, similarity
 
 
 @asynccontextmanager
@@ -34,6 +34,7 @@ def create_app() -> FastAPI:
     application.include_router(health.router)
     application.include_router(embed.router)
     application.include_router(parse_resume.router)
+    application.include_router(parse_resume_llm.router)
     application.include_router(similarity.router)
 
     return application

@@ -1,5 +1,5 @@
 """
-Extract technologies/tools from résumé plain text.
+Extract technologies/tools from resume plain text.
 
 Uses:
 - Custom skill dictionary + normalizer (alias table)
@@ -64,7 +64,7 @@ def extract_skills_from_text(
     use_spacy: bool = True,
 ) -> SkillExtractionResult:
     """
-    Detect skills in résumé text; return raw surface forms and canonical tokens.
+    Detect skills in resume text; return raw surface forms and canonical tokens.
 
     `skills` — deduped labels as found (or from list segments).
     `normalized_skills` — canonical tokens, deduped (e.g. react, nodejs).

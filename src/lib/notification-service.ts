@@ -20,6 +20,7 @@ import {
   buildStageChangeNotificationSentDetails,
   serializeActivityLogDetails,
 } from "@/src/lib/activity-log-details";
+import { scheduleNotificationFeedUpdated } from "@/src/lib/notification-realtime";
 
 /**
  * Optional: suppress duplicate `STAGE_CHANGED` rows for the same user + copy within this window (ms).
@@ -91,7 +92,7 @@ export async function createNotification(
   priority?: NotificationPriority | null,
   reference?: { type: NotificationReferenceType; id: string } | null
 ): Promise<Notification> {
-  return prisma.notification.create({
+  const row = await prisma.notification.create({
     data: {
       userId,
       type,
@@ -103,6 +104,8 @@ export async function createNotification(
         : {}),
     },
   });
+  scheduleNotificationFeedUpdated(userId);
+  return row;
 }
 
 const RECRUITER_ROLES = ["ADMIN", "RECRUITER"] as const;

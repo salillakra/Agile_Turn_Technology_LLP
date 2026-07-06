@@ -43,6 +43,9 @@ services:
       dockerfile: Dockerfile
     container_name: ats_ai_service
     restart: unless-stopped
+    user: root
+    entrypoint: ["/usr/local/bin/docker-entrypoint.sh"]
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       HOST: 0.0.0.0
       PORT: 8000
@@ -51,10 +54,14 @@ services:
       RESUME_FILES_BASE_PATH: /app/uploads/resumes
       RESUME_NLP_ENABLED: ${AI_RESUME_PARSE_ENABLED:-true}
       SPACY_MODEL_NAME: en_core_web_sm
+      HF_HOME: /var/cache/aiservice/huggingface
+      TRANSFORMERS_CACHE: /var/cache/aiservice/huggingface
+      SENTENCE_TRANSFORMERS_HOME: /var/cache/aiservice/sentence-transformers
     ports:
       - "${AI_SERVICE_PORT:-8000}:8000"
     volumes:
       - ./uploads:/app/uploads:ro
+      - ai_model_cache:/var/cache/aiservice
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -168,3 +175,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  ai_model_cache:

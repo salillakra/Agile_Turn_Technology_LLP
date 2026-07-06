@@ -45,12 +45,19 @@ enum CandidateSource {
   OTHER
 }
 
-// Async résumé parsing pipeline: enqueue after upload; worker fills resultJson or error.
+// Async resume parsing pipeline: enqueue after upload; worker fills resultJson or error.
 enum ResumeParseJobStatus {
   PENDING
   PROCESSING
   COMPLETED
+  PARTIAL
   FAILED
+}
+
+enum ResumeParseStrategy {
+  RULE_BASED
+  LLM
+  HYBRID
 }
 
 // Semantic embedding generation queue mirror (`embeddingQueue` BullMQ jobs).
@@ -424,7 +431,7 @@ model ReportExportLog {
 //   candidateSource — channel attribution (LINKEDIN, REFERRAL, etc.) for funnel analytics.
 //   rating — overall or default fit score.
 //   skills / normalizedSkills — recommendation arrays (raw parse vs canonical tokens for matching).
-//   summary / companies / education / certifications — structured NLP profile from résumé parse (normalized).
+//   summary / companies / education / certifications — structured NLP profile from resume parse (normalized).
 //   createdAt, updatedAt — audit.
 // Relations: applications (per-job pipeline), notes (internal comments), candidateSkills (legacy row-per-skill; kept until APIs migrate), candidateTags, activityLogs.
 model Candidate {
@@ -451,17 +458,17 @@ model Candidate {
   resumeFileName        String?                @map("resume_file_name")
   candidateSource       CandidateSource?       @map("candidate_source")
   rating                Int?
-  /// Raw skill strings from résumé parse or manual entry (display + audit). e.g. "React.js", "Node JS".
+  /// Raw skill strings from resume parse or manual entry (display + audit). e.g. "React.js", "Node JS".
   skills                String[]               @default([]) @map("skills")
   /// Canonical tokens for matching (same rules as `normalizeSkill` in resume-job-match). e.g. "react", "node js".
   normalizedSkills      String[]               @default([]) @map("normalized_skills")
   /// NLP structured one-liner (POST /parse-resume `summary`, rule-based).
   summary               String?                @db.Text
-  /// Previous employers from résumé parse (deduped display names).
+  /// Previous employers from resume parse (deduped display names).
   companies             String[]               @default([])
   /// Normalized education rows: `[{ degree, college, graduationYear }]`.
   education             Json?
-  /// Professional certifications from résumé parse (deduped labels).
+  /// Professional certifications from resume parse (deduped labels).
   certifications        String[]               @default([])
   /// Cached semantic embedding from AI service (e.g. `{ "model": "all-MiniLM-L6-v2", "vector": number[] }`). Null until generated.
   embedding             Json?                  @map("embedding")
@@ -481,6 +488,7 @@ model Candidate {
   candidateSkills       CandidateSkill[]
   activityLogs          ActivityLog[]
   resumeParseJobs       ResumeParseJob[]
+  parsedResumes         ParsedResume[]
   emailPreference       EmailPreference?
 
   @@index([createdById])
@@ -488,27 +496,51 @@ model Candidate {
   @@map("candidates")
 }
 
-// Tracks background work to parse an uploaded résumé into structured fields (e.g. skills, experience).
+// Tracks background work to parse an uploaded resume into structured fields (e.g. skills, experience).
 model ResumeParseJob {
-  id           String               @id @default(cuid())
-  candidateId  String               @map("candidate_id")
-  status       ResumeParseJobStatus @default(PENDING)
-  fileHash     String               @map("file_hash")
+  id                 String                @id @default(cuid())
+  candidateId        String                @map("candidate_id")
+  status             ResumeParseJobStatus  @default(PENDING)
+  fileHash           String                @map("file_hash")
   /// Parsed payload: see `ResumeParseResult` in `src/lib/resume-parse-result.ts` (name, skills, experience).
-  resultJson   Json?                @map("result_json")
-  error        String?              @db.Text
-  bullmqJobId  String?              @map("bullmq_job_id")
-  attemptCount Int                  @default(0) @map("attempt_count")
-  startedAt    DateTime?            @map("started_at")
-  completedAt  DateTime?            @map("completed_at")
-  failedAt     DateTime?            @map("failed_at")
-  createdAt    DateTime             @default(now()) @map("created_at")
-  updatedAt    DateTime             @updatedAt @map("updated_at")
-  candidate    Candidate            @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  resultJson         Json?                 @map("result_json")
+  error              String?               @db.Text
+  bullmqJobId        String?               @map("bullmq_job_id")
+  attemptCount       Int                   @default(0) @map("attempt_count")
+  /// LLM enrichment retries when status is PARTIAL (rule-only result persisted).
+  llmRetryCount      Int                   @default(0) @map("llm_retry_count")
+  strategyUsed       ResumeParseStrategy?  @map("strategy_used")
+  ruleConfidence     Float?                @map("rule_confidence")
+  llmConfidence      Float?                @map("llm_confidence")
+  disagreementFlags  String[]              @default([]) @map("disagreement_flags")
+  startedAt          DateTime?             @map("started_at")
+  completedAt        DateTime?             @map("completed_at")
+  failedAt           DateTime?             @map("failed_at")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  candidate          Candidate             @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  parsedResumes      ParsedResume[]
 
   @@index([candidateId])
   @@index([status])
   @@map("resume_parse_jobs")
+}
+
+/// Audit row per parse strategy (rule / LLM / hybrid merged snapshot).
+model ParsedResume {
+  id               String              @id @default(cuid())
+  candidateId      String              @map("candidate_id")
+  resumeParseJobId String              @map("resume_parse_job_id")
+  strategy         ResumeParseStrategy
+  payload          Json
+  confidence       Float?
+  createdAt        DateTime            @default(now()) @map("created_at")
+  candidate        Candidate           @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  resumeParseJob   ResumeParseJob      @relation(fields: [resumeParseJobId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId])
+  @@index([resumeParseJobId])
+  @@map("parsed_resumes")
 }
 
 /// Tracks `embeddingQueue` work per job or candidate (observability + debugging).

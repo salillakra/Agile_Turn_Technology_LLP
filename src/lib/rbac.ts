@@ -83,7 +83,7 @@ export function isViewOnlyCandidates(role: string | undefined): boolean {
   return false;
 }
 
-// ─── Résumé file RBAC (uploads/downloads under /api/resumes/*, /api/candidates/[id]/resume) ─
+// ─── resume file RBAC (uploads/downloads under /api/resumes/*, /api/candidates/[id]/resume) ─
 // ADMIN, HIRING_MANAGER, RECRUITER: upload/download/delete.
 
 /** All roles may upload or replace resume files (scope enforced in routes). */
@@ -91,7 +91,7 @@ export function canUploadResume(role: string | undefined): boolean {
   return canViewCandidates(role);
 }
 
-/** ADMIN, RECRUITER, and HIRING_MANAGER may download/read résumé files (aligned with candidate visibility). */
+/** ADMIN, RECRUITER, and HIRING_MANAGER may download/read resume files (aligned with candidate visibility). */
 export function canReadResume(role: string | undefined): boolean {
   return canViewCandidates(role);
 }

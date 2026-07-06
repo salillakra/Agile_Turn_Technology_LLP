@@ -6,13 +6,19 @@ import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { T } from "@/lib/helpers";
-import { canCreateCandidate, canReadResume, canViewCandidates } from "@/src/lib/rbac";
+import {
+  canCreateCandidate,
+  canReadResume,
+  canViewCandidates,
+} from "@/src/lib/rbac";
 import ResumeCandidateModal from "@/components/ResumeCandidateModal";
 import { NOTIFICATIONS_REFRESH_EVENT } from "@/components/NotificationBell";
 import { dispatchPipelineDataRefresh } from "@/src/lib/applicants-refresh-event";
 
 function formatScore(value) {
-  return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : null;
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.round(value)
+    : null;
 }
 
 function normalizeNameKey(name) {
@@ -28,19 +34,22 @@ function dedupeRecommendedRows(rows) {
     const key = normalizeNameKey(row.candidateName) || row.candidateId;
     const prev = best.get(key);
     const score = typeof row.finalScore === "number" ? row.finalScore : 0;
-    const prevScore = prev && typeof prev.finalScore === "number" ? prev.finalScore : -1;
+    const prevScore =
+      prev && typeof prev.finalScore === "number" ? prev.finalScore : -1;
     if (!prev || score > prevScore) {
       best.set(key, row);
     }
   }
   return [...best.values()].sort(
-    (a, b) => (b.finalScore ?? 0) - (a.finalScore ?? 0)
+    (a, b) => (b.finalScore ?? 0) - (a.finalScore ?? 0),
   );
 }
 
 function displayReason(row) {
   const raw =
-    typeof row.recommendationReason === "string" ? row.recommendationReason.trim() : "";
+    typeof row.recommendationReason === "string"
+      ? row.recommendationReason.trim()
+      : "";
   if (!raw) return "Review fit before adding to pipeline";
   const first = raw.split(/(?<=[.!?])\s+/)[0]?.trim();
   return (first || raw).replace(/\.$/, "");
@@ -53,44 +62,49 @@ function formatBatchSummary(body, items) {
   const skippedNotEligible =
     typeof body?.skippedNotEligible === "number" ? body.skippedNotEligible : 0;
   const skippedInaccessible =
-    typeof body?.skippedInaccessible === "number" ? body.skippedInaccessible : 0;
-  const skippedOther = typeof body?.skippedOther === "number" ? body.skippedOther : 0;
+    typeof body?.skippedInaccessible === "number"
+      ? body.skippedInaccessible
+      : 0;
+  const skippedOther =
+    typeof body?.skippedOther === "number" ? body.skippedOther : 0;
   const results = Array.isArray(body?.results) ? body.results : [];
 
   const nameById = new Map(
-    (items ?? []).map((row) => [row.candidateId, row.candidateName])
+    (items ?? []).map((row) => [row.candidateId, row.candidateName]),
   );
 
   const parts = [];
   if (created > 0) {
     parts.push(
-      created === 1 ? "1 added to pipeline" : `${created} added to pipeline`
+      created === 1 ? "1 added to pipeline" : `${created} added to pipeline`,
     );
   }
   if (skippedDuplicates > 0) {
     parts.push(
       skippedDuplicates === 1
         ? "1 already on pipeline"
-        : `${skippedDuplicates} already on pipeline`
+        : `${skippedDuplicates} already on pipeline`,
     );
   }
   if (skippedNotEligible > 0) {
     parts.push(
       skippedNotEligible === 1
-        ? "1 not eligible (résumé/skills)"
-        : `${skippedNotEligible} not eligible (résumé/skills)`
+        ? "1 not eligible (resume/skills)"
+        : `${skippedNotEligible} not eligible (resume/skills)`,
     );
   }
   if (skippedInaccessible > 0) {
     parts.push(
       skippedInaccessible === 1
         ? "1 not accessible"
-        : `${skippedInaccessible} not accessible`
+        : `${skippedInaccessible} not accessible`,
     );
   }
   if (skippedOther > 0) {
     parts.push(
-      skippedOther === 1 ? "1 could not be added" : `${skippedOther} could not be added`
+      skippedOther === 1
+        ? "1 could not be added"
+        : `${skippedOther} could not be added`,
     );
   }
 
@@ -104,11 +118,13 @@ function formatBatchSummary(body, items) {
           ? "profile missing"
           : row.reason === "JOB_NOT_OPEN"
             ? "job not open"
-            : row.reason ?? "failed";
+            : (row.reason ?? "failed");
     parts.push(`${label}: ${reason}`);
   }
 
-  return parts.length ? `${parts.join(" · ")}.` : "No candidates were added to the pipeline.";
+  return parts.length
+    ? `${parts.join(" · ")}.`
+    : "No candidates were added to the pipeline.";
 }
 
 function selectedRecommendationPayload(items, selected) {
@@ -163,14 +179,20 @@ export default function JobRecommendedCandidates({
     try {
       const res = await fetch(
         `/api/jobs/${encodeURIComponent(jobId)}/recommended-candidates`,
-        { credentials: "same-origin" }
+        { credentials: "same-origin" },
       );
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         const msg =
-          body && typeof body === "object" && "message" in body && typeof body.message === "string"
+          body &&
+          typeof body === "object" &&
+          "message" in body &&
+          typeof body.message === "string"
             ? body.message
-            : body && typeof body === "object" && "error" in body && typeof body.error === "string"
+            : body &&
+                typeof body === "object" &&
+                "error" in body &&
+                typeof body.error === "string"
               ? body.error
               : `Failed to load recommendations (${res.status})`;
         throw new Error(msg);
@@ -183,13 +205,17 @@ export default function JobRecommendedCandidates({
               r &&
               typeof r === "object" &&
               typeof r.candidateId === "string" &&
-              typeof r.candidateName === "string"
-          )
-        )
+              typeof r.candidateName === "string",
+          ),
+        ),
       );
       setSelected(new Set());
     } catch (e) {
-      setFetchError(e instanceof Error ? e.message : "Failed to load recommended candidates");
+      setFetchError(
+        e instanceof Error
+          ? e.message
+          : "Failed to load recommended candidates",
+      );
       setItems([]);
     } finally {
       setLoading(false);
@@ -201,8 +227,9 @@ export default function JobRecommendedCandidates({
   }, [load, refreshKey]);
 
   const allSelected = useMemo(
-    () => items.length > 0 && items.every((row) => selected.has(row.candidateId)),
-    [items, selected]
+    () =>
+      items.length > 0 && items.every((row) => selected.has(row.candidateId)),
+    [items, selected],
   );
 
   function toggleSelected(candidateId) {
@@ -228,7 +255,10 @@ export default function JobRecommendedCandidates({
     setActionMsg("");
     setFetchError("");
     const candidateIds = [...selected];
-    const recommendedCandidates = selectedRecommendationPayload(items, selected);
+    const recommendedCandidates = selectedRecommendationPayload(
+      items,
+      selected,
+    );
 
     try {
       const res = await fetch(
@@ -241,18 +271,22 @@ export default function JobRecommendedCandidates({
             candidateIds,
             recommendedCandidates,
           }),
-        }
+        },
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(
-          body?.message || body?.error || `Bulk shortlist failed (${res.status})`
+          body?.message ||
+            body?.error ||
+            `Bulk shortlist failed (${res.status})`,
         );
       }
 
       const created = typeof body?.created === "number" ? body.created : 0;
       const skippedDuplicates =
-        typeof body?.skippedDuplicates === "number" ? body.skippedDuplicates : 0;
+        typeof body?.skippedDuplicates === "number"
+          ? body.skippedDuplicates
+          : 0;
 
       setActionMsg(formatBatchSummary(body, items));
       setSelected(new Set());
@@ -286,20 +320,22 @@ export default function JobRecommendedCandidates({
             candidateIds: [candidateId],
             recommendedCandidates: selectedRecommendationPayload(
               items,
-              new Set([candidateId])
+              new Set([candidateId]),
             ),
           }),
-        }
+        },
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(
-          body?.message || body?.error || `Apply failed (${res.status})`
+          body?.message || body?.error || `Apply failed (${res.status})`,
         );
       }
       const created = typeof body?.created === "number" ? body.created : 0;
       const skippedDuplicates =
-        typeof body?.skippedDuplicates === "number" ? body.skippedDuplicates : 0;
+        typeof body?.skippedDuplicates === "number"
+          ? body.skippedDuplicates
+          : 0;
 
       setActionMsg(formatBatchSummary(body, items));
 
@@ -310,7 +346,9 @@ export default function JobRecommendedCandidates({
       onPipelineChange?.();
       await load();
     } catch (e) {
-      setFetchError(e instanceof Error ? e.message : "Failed to apply candidate");
+      setFetchError(
+        e instanceof Error ? e.message : "Failed to apply candidate",
+      );
     } finally {
       setBusyCandidateId("");
     }
@@ -324,9 +362,17 @@ export default function JobRecommendedCandidates({
         <FieldLabel className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
           Recommended candidates
         </FieldLabel>
-        <p style={{ margin: "0 0 10px", fontSize: 11, lineHeight: 1.5, color: "var(--text-muted)" }}>
-          AI-ranked talent from your pool. Select multiple candidates and shortlist in one step —
-          duplicate applications are skipped automatically.
+        <p
+          style={{
+            margin: "0 0 10px",
+            fontSize: 11,
+            lineHeight: 1.5,
+            color: "var(--text-muted)",
+          }}
+        >
+          AI-ranked talent from your pool. Select multiple candidates and
+          shortlist in one step — duplicate applications are skipped
+          automatically.
         </p>
 
         {loading ? (
@@ -336,7 +382,10 @@ export default function JobRecommendedCandidates({
         ) : null}
 
         {fetchError ? (
-          <p style={{ margin: "8px 0 0", fontSize: 12, color: "#FCA5A5" }} role="alert">
+          <p
+            style={{ margin: "8px 0 0", fontSize: 12, color: "#FCA5A5" }}
+            role="alert"
+          >
             {fetchError}
           </p>
         ) : null}
@@ -402,10 +451,18 @@ export default function JobRecommendedCandidates({
                     style={{
                       borderBottom: "1px solid rgba(148,163,184,.12)",
                       padding: "12px 14px",
-                      background: checked ? "rgba(99,102,241,.06)" : "transparent",
+                      background: checked
+                        ? "rgba(99,102,241,.06)"
+                        : "transparent",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 10,
+                      }}
+                    >
                       {canApply && jobOpen ? (
                         <input
                           type="checkbox"
@@ -427,13 +484,25 @@ export default function JobRecommendedCandidates({
                             color: "var(--text-heading-soft)",
                           }}
                         >
-                          <strong style={{ fontWeight: 600 }}>{row.candidateName}</strong>
+                          <strong style={{ fontWeight: 600 }}>
+                            {row.candidateName}
+                          </strong>
                           {finalScore != null ? (
                             <>
-                              <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
+                              <span
+                                style={{
+                                  color: "var(--text-muted)",
+                                  fontWeight: 500,
+                                }}
+                              >
                                 —
                               </span>
-                              <span style={{ color: "var(--accent)", fontWeight: 700 }}>
+                              <span
+                                style={{
+                                  color: "var(--accent)",
+                                  fontWeight: 700,
+                                }}
+                              >
                                 {finalScore}%
                               </span>
                             </>
@@ -537,7 +606,10 @@ export default function JobRecommendedCandidates({
                               size="sm"
                               disabled={busy || batchBusy}
                               onClick={() =>
-                                void applyCandidate(row.candidateId, row.candidateName)
+                                void applyCandidate(
+                                  row.candidateId,
+                                  row.candidateName,
+                                )
                               }
                             >
                               {busy ? "Applying…" : "Add to pipeline"}
@@ -595,13 +667,17 @@ export default function JobRecommendedCandidates({
         ) : null}
 
         {actionMsg ? (
-          <p style={{ margin: "10px 0 0", fontSize: 12, color: "#86EFAC" }}>{actionMsg}</p>
+          <p style={{ margin: "10px 0 0", fontSize: 12, color: "#86EFAC" }}>
+            {actionMsg}
+          </p>
         ) : null}
       </Field>
 
       <ResumeCandidateModal
         open={resumeModal.open}
-        onClose={() => setResumeModal({ open: false, candidateId: undefined, name: "" })}
+        onClose={() =>
+          setResumeModal({ open: false, candidateId: undefined, name: "" })
+        }
         candidateId={resumeModal.candidateId}
         candidateName={resumeModal.name}
         userRole={role}

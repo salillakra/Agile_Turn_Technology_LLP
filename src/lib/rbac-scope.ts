@@ -61,7 +61,7 @@ export async function canAccessCandidateForRecommendations(
 
   const applicationCount = await prisma.application.count({ where: { candidateId } });
 
-  // Add Applicant / résumé intake: candidate exists but is not on any job yet.
+  // Add Applicant / resume intake: candidate exists but is not on any job yet.
   if (applicationCount === 0 && (isRecruiter(role) || isHiringManager(role))) {
     return true;
   }

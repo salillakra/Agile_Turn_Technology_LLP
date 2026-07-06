@@ -1,4 +1,4 @@
-"""Structured résumé summary builder tests."""
+"""Structured resume summary builder tests."""
 
 from app.models.parse_resume import ResumeEducationEntry, StructuredResumeParse
 from app.nlp.resume_summary_builder import (
