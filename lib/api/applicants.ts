@@ -184,3 +184,22 @@ export async function markInvoicePaid(invoiceId: string): Promise<unknown> {
   });
   return data;
 }
+
+export async function updateLeadStatus(
+  leadId: string,
+  status: string
+): Promise<unknown> {
+  const { data } = await apiClient.patch(`/crm/leads/${encodeURIComponent(leadId)}`, { status });
+  return data;
+}
+
+export async function updateRequirementStatus(
+  requirementId: string,
+  status: string
+): Promise<unknown> {
+  const { data } = await apiClient.patch(
+    `/crm/requirements/${encodeURIComponent(requirementId)}`,
+    { status }
+  );
+  return data;
+}

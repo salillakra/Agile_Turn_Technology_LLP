@@ -117,8 +117,9 @@ export async function runResumeParsePipeline(
       llm = llmResult.response;
     } else {
       partialLlmMiss = true;
-      llmSkippedReason = llmResult.error;
-      console.warn("[resume-parse-pipeline] LLM parse failed: %s", llmResult.error);
+      const errResult = llmResult as { ok: false; error: string };
+      llmSkippedReason = errResult.error;
+      console.warn("[resume-parse-pipeline] LLM parse failed: %s", errResult.error);
     }
   } else if (!isAiResumeLlmParseConfigured()) {
     llmSkippedReason = "llm_not_configured";

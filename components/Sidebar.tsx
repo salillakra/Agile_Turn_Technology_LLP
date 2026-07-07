@@ -86,11 +86,11 @@ export default function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" render={<Link href="/dashboard" />}>
-              <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-primary text-xs font-semibold text-primary-foreground">
-                {themeConfig.brand.monogram}
+              <div className="flex h-7 items-center justify-center rounded-md bg-transparent">
+                <img src="/agile_turn_logo.png" alt="Agile Turn Logo" className="h-full w-auto object-contain dark:invert" />
               </div>
               <div className="flex flex-col gap-0.5 leading-none group-data-[collapsible=icon]:hidden">
-                <span className="text-sm font-semibold tracking-[-0.02em]">{themeConfig.brand.name}</span>
+                {/* <span className="text-sm font-semibold tracking-[-0.02em]">{themeConfig.brand.name}</span> */}
                 <span className="text-eyebrow normal-case">
                   {themeConfig.brand.tagline}
                 </span>

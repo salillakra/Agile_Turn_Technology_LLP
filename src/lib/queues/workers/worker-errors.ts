@@ -2,10 +2,8 @@ import { UnrecoverableError } from "bullmq";
 
 /** Permanent failure — BullMQ will not retry (job moves to failed set). */
 export function permanentWorkerError(message: string, cause?: unknown): UnrecoverableError {
-  if (cause instanceof Error) {
-    return new UnrecoverableError(message, { cause });
-  }
-  return new UnrecoverableError(message);
+  const msg = cause instanceof Error ? `${message} (cause: ${cause.message})` : message;
+  return new UnrecoverableError(msg);
 }
 
 /** Transient failure — BullMQ retries per queue `attempts` / `backoff`. */
@@ -18,6 +16,6 @@ export function transientWorkerError(message: string, cause?: unknown): Error {
   return new Error(message);
 }
 
-export function isUnrecoverableError(error: unknown): boolean {
+export function isUnrecoverableError(error: unknown): error is UnrecoverableError {
   return error instanceof UnrecoverableError;
 }

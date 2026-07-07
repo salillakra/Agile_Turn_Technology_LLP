@@ -206,7 +206,7 @@ export async function GET(request: Request) {
     ? getPreviousApplicationsCreatedAtFilter(parsedRange.range, dateFilterOptions)
     : null;
 
-  async function computeForFilter(filter: { gte: Date } | { gte: Date; lt: Date } | undefined) {
+  async function computeForFilter(filter: { gte?: Date; lte?: Date; lt?: Date } | undefined) {
     const stageAgg = await prisma.application.groupBy({
       by: ["stage"],
       where: {

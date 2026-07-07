@@ -164,7 +164,7 @@ export async function GET(request: Request) {
     return "Other";
   };
 
-  async function computeForFilter(filter: { gte: Date } | { gte: Date; lt: Date } | undefined) {
+  async function computeForFilter(filter: { gte?: Date; lte?: Date; lt?: Date } | undefined) {
     const where = {
       withdrawnAt: null as null,
       ...(filter ? { createdAt: filter } : {}),

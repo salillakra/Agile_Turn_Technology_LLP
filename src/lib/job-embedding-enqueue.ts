@@ -25,11 +25,12 @@ export async function enqueueJobEmbeddingAfterJobChange(
   });
 
   if (!result.ok) {
+    const errResult = result as { ok: false; message: string };
     console.warn(
       "[job-embedding-enqueue] embedding enqueue skipped for job %s (%s): %s",
       id,
       reason,
-      result.message
+      errResult.message
     );
   }
 }

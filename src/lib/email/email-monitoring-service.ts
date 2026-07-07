@@ -3,6 +3,7 @@ import {
   getApplicationsCreatedAtFilter,
   parseDashboardRangeParams,
   getDateFilterOptions,
+  type DashboardRange,
 } from "@/src/lib/dashboard-range";
 import type {
   EmailMonitoringDashboard,

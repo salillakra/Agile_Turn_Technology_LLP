@@ -11,10 +11,11 @@ export async function enqueueCandidateEmbeddingAfterParse(
     force: true,
   });
   if (!result.ok) {
+    const errResult = result as { ok: false; message: string };
     console.warn(
       "[resume-parse-embedding] embedding enqueue skipped for %s: %s",
       candidateId,
-      result.message
+      errResult.message
     );
   }
 }

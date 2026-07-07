@@ -94,7 +94,8 @@ export async function parseResumeTextWithLlm(text: string): Promise<ParseResumeL
     const gemini = await parseResumeTextWithGemini(text);
     if (!gemini.ok) {
       recordLlmFailure();
-      return { ok: false, error: gemini.error };
+      const errGemini = gemini as { ok: false; error: string };
+      return { ok: false, error: errGemini.error };
     }
     recordLlmSuccess();
     return { ok: true, response: gemini.response };

@@ -8,6 +8,7 @@ import {
   Briefcase, Buildings, MapPin, CurrencyDollar, Users,
   Plus, Copy, Pencil, Trash, UserPlus, Check, SpinnerGap,
   FileArrowUp, DownloadSimple,
+  SpinnerGapIcon,
 } from "@phosphor-icons/react";
 import { DEPARTMENTS, LOCATIONS } from "@/data/mockData";
 import {
@@ -382,12 +383,13 @@ export default function Jobs({ jobs, applicants = [], refreshJobs }: JobProps) {
                     )}
                     {allowDeleteJob && (
                       <Button
+                        key={job.id}
                         variant="ghost" size="sm"
                         className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
                         onClick={() => handleDelete(job)}
                         disabled={deleteJob.isPending}
                       >
-                        {deleteJob.isPending ? <SpinnerGap className="size-3.5 mr-1 animate-spin" /> : <Trash className="size-3.5 mr-1" />}
+                        {deleteJob.isPending ? <SpinnerGapIcon className="size-3.5 mr-1 animate-spin" /> : <Trash className="size-3.5 mr-1" />}
                         Remove
                       </Button>
                     )}

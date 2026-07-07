@@ -5,8 +5,18 @@
 
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
-import { getDocument, type TextItem as PdfjsTextItem } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import type { TextItem, TextItems } from "@/src/lib/open-resume/parse-resume-from-pdf/types";
+
+type PdfjsTextItem = {
+  str: string;
+  dir: string;
+  width: number;
+  height: number;
+  transform: number[];
+  fontName: string;
+  hasEOL: boolean;
+};
 
 async function loadPdfBytes(source: string | Uint8Array): Promise<Uint8Array> {
   if (source instanceof Uint8Array) return source;
@@ -31,7 +41,6 @@ export async function readPdfFromBytes(data: Uint8Array): Promise<TextItems> {
   const pdfFile = await getDocument({
     data,
     useSystemFonts: true,
-    disableWorker: true,
   }).promise;
 
   let textItems: TextItems = [];

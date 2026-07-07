@@ -13,13 +13,24 @@ const nextConfig = {
    */
   async rewrites() {
     if (process.env.NODE_ENV !== "development") return [];
-    return [
-      { source: "/admin/queues", destination: `${monitorOrigin}/admin/queues` },
-      {
-        source: "/admin/queues/:path*",
-        destination: `${monitorOrigin}/admin/queues/:path*`,
-      },
-    ];
+    return {
+      beforeFiles: [
+        {
+          source: "/admin/queues",
+          has: [{ type: "query", key: "accessToken" }],
+          destination: `${monitorOrigin}/admin/queues`,
+        },
+        {
+          source: "/admin/queues",
+          has: [{ type: "cookie", key: "queue-monitor-session" }],
+          destination: `${monitorOrigin}/admin/queues`,
+        },
+        {
+          source: "/admin/queues/:path*",
+          destination: `${monitorOrigin}/admin/queues/:path*`,
+        },
+      ],
+    };
   },
   /** Keep heavy native/Node packages out of the webpack graph where possible. */
   serverExternalPackages: [

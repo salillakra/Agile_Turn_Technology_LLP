@@ -134,7 +134,8 @@ export async function consumeQueueEnqueueRateLimit(
 export async function assertQueueEnqueueRateLimit(kind: QueueEnqueueKind): Promise<void> {
   const result = await consumeQueueEnqueueRateLimit(kind);
   if (!result.ok) {
-    throw new QueueEnqueueRateLimitedError(kind, result.retryAfterSeconds);
+    const errResult = result as { ok: false; retryAfterSeconds: number };
+    throw new QueueEnqueueRateLimitedError(kind, errResult.retryAfterSeconds);
   }
 }
 

@@ -144,9 +144,10 @@ export async function POST(request: Request) {
 
   const result = await createJobFromBody(userId.trim(), body);
   if (!result.ok) {
+    const errResult = result as { ok: false; status: number; error: string; details?: unknown };
     return NextResponse.json(
-      result.details ? { error: result.error, details: result.details } : { error: result.error },
-      { status: result.status }
+      errResult.details ? { error: errResult.error, details: errResult.details } : { error: errResult.error },
+      { status: errResult.status }
     );
   }
 

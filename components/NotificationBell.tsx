@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, Checks, Tray } from "@phosphor-icons/react";
+import { Bell, Checks, Tray, SpinnerGap } from "@phosphor-icons/react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -207,7 +207,7 @@ export default function NotificationBell() {
           </Badge>
         )}
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[380px] p-0" sideOffset={8}>
+      <PopoverContent align="end" className="w-[380px] p-0 z-[100] isolate overflow-hidden bg-popover shadow-2xl" sideOffset={8}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3">
           <p className="text-sm font-semibold">Notifications</p>
@@ -220,7 +220,7 @@ export default function NotificationBell() {
         </div>
         <Separator />
 
-        <ScrollArea className="max-h-95">
+        <ScrollArea className="h-[400px] w-full">
           {loading && notifications.length === 0 ? (
             <div className="flex flex-col gap-3 p-4">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -239,7 +239,7 @@ export default function NotificationBell() {
               <p className="text-sm">No notifications</p>
             </div>
           ) : (
-            <>
+            <div className="flex flex-col pb-2">
               {notifications.map((n) => {
                 const hasLink = Boolean(notificationTargetHref(n.referenceId, n.referenceType));
                 return (
@@ -281,15 +281,16 @@ export default function NotificationBell() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="w-full text-xs"
+                    className="w-full text-xs gap-1.5"
                     onClick={() => fetchNotifications(page + 1)}
                     disabled={loading}
                   >
+                    {loading && <SpinnerGap className="size-3.5 animate-spin" />}
                     {loading ? "Loading…" : "Load more"}
                   </Button>
                 </div>
               )}
-            </>
+            </div>
           )}
         </ScrollArea>
       </PopoverContent>

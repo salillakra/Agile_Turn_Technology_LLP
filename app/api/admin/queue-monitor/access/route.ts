@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/src/lib/auth";
 import { isAdmin } from "@/src/lib/rbac";
 import {
@@ -16,7 +16,10 @@ export const runtime = "nodejs";
  * Requires an active NextAuth session with role ADMIN.
  * Not available on Vercel (local sidecar only).
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const jsonMode = searchParams.get("json") === "true";
+
   const session = await getSession();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -81,9 +84,13 @@ export async function GET() {
   const origin = started.origin || getQueueMonitorPublicOrigin();
   const url = `${origin}${QUEUE_MONITOR_BASE_PATH}?accessToken=${encodeURIComponent(accessToken)}`;
 
-  return NextResponse.json({
-    url,
-    basePath: QUEUE_MONITOR_BASE_PATH,
-    expiresInSeconds: 3600,
-  });
+  if (jsonMode) {
+    return NextResponse.json({
+      url,
+      basePath: QUEUE_MONITOR_BASE_PATH,
+      expiresInSeconds: 3600,
+    });
+  }
+
+  return NextResponse.redirect(url);
 }

@@ -78,7 +78,7 @@ export default function ProfileCard({ profile, showStrength = true }: ProfileCar
               <ProgressLabel className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                 Profile strength
               </ProgressLabel>
-              <ProgressValue>{pct}%</ProgressValue>
+              <ProgressValue>{() => `${pct}%`}</ProgressValue>
             </Progress>
             <p className="text-xs leading-relaxed text-muted-foreground">
               Complete missing sections to improve visibility across the workspace.

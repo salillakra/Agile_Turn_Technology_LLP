@@ -281,7 +281,7 @@ export async function GET(request: Request) {
         doc.fontSize(18).text("Recruitment Report Summary");
         doc.moveDown(0.5);
         doc.fontSize(10).fillColor("#555555").text(
-          `Generated: ${new Date().toISOString()}  |  Range: ${range}  |  Department: ${department || "all"}  |  JobId: ${jobId || "all"}`
+          `Generated: ${new Date().toISOString()}  |  Range: ${rangeKey}  |  Department: ${department || "all"}  |  JobId: ${jobId || "all"}`
         );
         doc.fillColor("#000000");
         doc.moveDown();

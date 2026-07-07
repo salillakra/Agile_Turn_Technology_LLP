@@ -15,6 +15,8 @@ import {
   createRequirement,
   activateRequirement,
   markInvoicePaid,
+  updateLeadStatus,
+  updateRequirementStatus,
 } from "@/lib/api/applicants";
 
 export const applicantKeys = {
@@ -192,6 +194,30 @@ export function useMarkInvoicePaid() {
     mutationFn: markInvoicePaid,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: crmKeys.invoices() });
+    },
+  });
+}
+
+export function useUpdateLeadStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ leadId, status }: { leadId: string; status: string }) =>
+      updateLeadStatus(leadId, status),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: crmKeys.leads() });
+      void queryClient.invalidateQueries({ queryKey: crmKeys.summary() });
+    },
+  });
+}
+
+export function useUpdateRequirementStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requirementId, status }: { requirementId: string; status: string }) =>
+      updateRequirementStatus(requirementId, status),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: crmKeys.requirements() });
+      void queryClient.invalidateQueries({ queryKey: crmKeys.summary() });
     },
   });
 }

@@ -803,10 +803,9 @@ export default function Applicants({
         <Card className="p-4 border-primary/20 bg-primary/5">
           <InterviewTimeline
             applicationId={timelineApplicationId}
-            jobId={jobQ}
             enabled
             refreshKey={interviewRefreshKey}
-            compact={!applicationQ}
+            compact={!interviewPanelAppId && !applicationQ}
           />
         </Card>
       )}

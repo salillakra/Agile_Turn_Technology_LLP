@@ -152,6 +152,9 @@ export default function ApplyFlow({ job }) {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6">
       <div className="w-full min-w-0">
+        <div className="mb-8 flex h-9 items-center">
+          <img src="/agile_turn_logo.png" alt="Agile Turn Logo" className="h-full w-auto object-contain dark:invert" />
+        </div>
         <p
           className="m-0 mb-1 text-[11px] font-bold uppercase tracking-wider text-blue-500"
           style={T.mono}

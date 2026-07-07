@@ -73,11 +73,12 @@ export async function POST(request: Request) {
       });
     } else {
       failed++;
+      const errResult = result as { ok: false; error: string };
       results.push({
         row: row.rowNumber,
         title: title || `(row ${row.rowNumber})`,
         success: false,
-        error: result.error,
+        error: errResult.error,
       });
     }
   }

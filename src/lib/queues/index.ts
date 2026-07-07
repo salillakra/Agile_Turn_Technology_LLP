@@ -86,7 +86,6 @@ export {
   getParseQueue,
   getEmbedQueue,
   getEmailQueue,
-  getAnalyticsQueue,
   getAllQueues,
   closeAllQueues,
   type QueueName,

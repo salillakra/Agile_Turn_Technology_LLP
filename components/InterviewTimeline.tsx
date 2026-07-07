@@ -382,6 +382,10 @@ export default function InterviewTimeline({
     notes: "",
   });
   const [busy, setBusy] = useState(false);
+  const [scheduleError, setScheduleError] = useState("");
+  const [rescheduleError, setRescheduleError] = useState("");
+  const [cancelError, setCancelError] = useState("");
+  const [feedbackError, setFeedbackError] = useState("");
 
   const query = useMemo(() => {
     if (applicationId) return `applicationId=${encodeURIComponent(applicationId)}`;
@@ -421,12 +425,14 @@ export default function InterviewTimeline({
       meetingLink: row.meetingLink ?? "",
     });
     setRescheduleModal({ open: true, row });
+    setRescheduleError("");
     setActionMsg("");
   };
 
   const openCancel = (row) => {
     setCancelReason("");
     setCancelModal({ open: true, row });
+    setCancelError("");
     setActionMsg("");
   };
 
@@ -439,12 +445,14 @@ export default function InterviewTimeline({
       notes: "",
     });
     setFeedbackModal({ open: true, row });
+    setFeedbackError("");
     setActionMsg("");
   };
 
   const openScheduleModal = useCallback(async () => {
     if (!applicationId) return;
     setActionMsg("");
+    setScheduleError("");
     setScheduleUsersLoading(true);
     try {
       const res = await fetch("/api/users/visible", { credentials: "same-origin" });
@@ -487,7 +495,8 @@ export default function InterviewTimeline({
       setScheduleModal(true);
     } catch (e) {
       setInterviewerOptions([]);
-      setActionMsg(e instanceof Error ? e.message : "Could not open schedule form");
+      setScheduleError(e instanceof Error ? e.message : "Could not open schedule form");
+      setScheduleModal(true); // open dialog so user can see the error
     } finally {
       setScheduleUsersLoading(false);
     }
@@ -497,7 +506,7 @@ export default function InterviewTimeline({
     if (!applicationId) return;
     const scheduledAt = fromDatetimeLocalValue(scheduleForm.scheduledAt);
     if (!scheduledAt) {
-      setActionMsg("Enter a valid date and time");
+      setScheduleError("Enter a valid date and time");
       return;
     }
     const rawDuration = Number(scheduleForm.durationMinutes);
@@ -507,17 +516,17 @@ export default function InterviewTimeline({
       rawDuration < 5 ||
       rawDuration > 480
     ) {
-      setActionMsg("Duration must be a whole number between 5 and 480 minutes");
+      setScheduleError("Duration must be a whole number between 5 and 480 minutes");
       return;
     }
     const durationMinutes = rawDuration;
     const interviewerUserId = scheduleForm.interviewerUserId.trim();
     if (!interviewerUserId) {
-      setActionMsg("Select at least one interviewer");
+      setScheduleError("Select at least one interviewer");
       return;
     }
     setBusy(true);
-    setActionMsg("");
+    setScheduleError("");
     try {
       const res = await fetch("/api/interviews", {
         method: "POST",
@@ -539,7 +548,7 @@ export default function InterviewTimeline({
       setActionMsg("Interview scheduled");
       await load();
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : "Schedule failed");
+      setScheduleError(e instanceof Error ? e.message : "Schedule failed");
     } finally {
       setBusy(false);
     }
@@ -550,11 +559,11 @@ export default function InterviewTimeline({
     if (!row?.id) return;
     const scheduledAt = fromDatetimeLocalValue(rescheduleForm.scheduledAt);
     if (!scheduledAt) {
-      setActionMsg("Enter a valid date and time");
+      setRescheduleError("Enter a valid date and time");
       return;
     }
     setBusy(true);
-    setActionMsg("");
+    setRescheduleError("");
     try {
       const res = await fetch(`/api/interviews/${encodeURIComponent(row.id)}/reschedule`, {
         method: "PATCH",
@@ -574,7 +583,7 @@ export default function InterviewTimeline({
       setActionMsg("Interview rescheduled");
       await load();
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : "Reschedule failed");
+      setRescheduleError(e instanceof Error ? e.message : "Reschedule failed");
     } finally {
       setBusy(false);
     }
@@ -585,11 +594,11 @@ export default function InterviewTimeline({
     if (!row?.id) return;
     const reason = cancelReason.trim();
     if (!reason) {
-      setActionMsg("Cancellation reason is required");
+      setCancelError("Cancellation reason is required");
       return;
     }
     setBusy(true);
-    setActionMsg("");
+    setCancelError("");
     try {
       const res = await fetch(`/api/interviews/${encodeURIComponent(row.id)}/cancel`, {
         method: "PATCH",
@@ -605,7 +614,7 @@ export default function InterviewTimeline({
       setActionMsg("Interview cancelled");
       await load();
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : "Cancel failed");
+      setCancelError(e instanceof Error ? e.message : "Cancel failed");
     } finally {
       setBusy(false);
     }
@@ -615,7 +624,7 @@ export default function InterviewTimeline({
     const row = feedbackModal.row;
     if (!row?.id) return;
     setBusy(true);
-    setActionMsg("");
+    setFeedbackError("");
     try {
       const rating = Number(feedbackForm.rating);
       const res = await fetch(`/api/interviews/${encodeURIComponent(row.id)}/feedback`, {
@@ -638,7 +647,7 @@ export default function InterviewTimeline({
       setActionMsg("Feedback submitted");
       await load();
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : "Feedback failed");
+      setFeedbackError(e instanceof Error ? e.message : "Feedback failed");
     } finally {
       setBusy(false);
     }
@@ -788,6 +797,22 @@ export default function InterviewTimeline({
               />
             </Field>
           </FieldGroup>
+          {rescheduleError ? (
+            <p
+              style={{
+                margin: "0 0 4px",
+                padding: "8px 12px",
+                borderRadius: 6,
+                background: "rgba(248,113,113,.12)",
+                border: "1px solid rgba(248,113,113,.35)",
+                color: "#FCA5A5",
+                fontSize: 13,
+                lineHeight: 1.45,
+              }}
+            >
+              {rescheduleError}
+            </p>
+          ) : null}
           <DialogFooter>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setRescheduleModal({ open: false, row: null })}>
               Close
@@ -816,6 +841,22 @@ export default function InterviewTimeline({
               placeholder="Explain why this interview is cancelled…"
             />
           </Field>
+          {cancelError ? (
+            <p
+              style={{
+                margin: "0 0 4px",
+                padding: "8px 12px",
+                borderRadius: 6,
+                background: "rgba(248,113,113,.12)",
+                border: "1px solid rgba(248,113,113,.35)",
+                color: "#FCA5A5",
+                fontSize: 13,
+                lineHeight: 1.45,
+              }}
+            >
+              {cancelError}
+            </p>
+          ) : null}
           <DialogFooter>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setCancelModal({ open: false, row: null })}>
               Close
@@ -830,7 +871,10 @@ export default function InterviewTimeline({
       <Dialog
         open={scheduleModal}
         onOpenChange={(open) => {
-          if (!open && !busy) setScheduleModal(false);
+          if (!open && !busy) {
+            setScheduleModal(false);
+            setScheduleError("");
+          }
         }}
       >
         <DialogContent className="sm:max-w-lg">
@@ -894,9 +938,33 @@ export default function InterviewTimeline({
                 options={INTERVIEWER_ROLE_OPTIONS}
               />
             </Field>
+            {scheduleError ? (
+              <p
+                style={{
+                  margin: 0,
+                  padding: "8px 12px",
+                  borderRadius: 6,
+                  background: "rgba(248,113,113,.12)",
+                  border: "1px solid rgba(248,113,113,.35)",
+                  color: "#FCA5A5",
+                  fontSize: 13,
+                  lineHeight: 1.45,
+                }}
+              >
+                {scheduleError}
+              </p>
+            ) : null}
           </FieldGroup>
           <DialogFooter>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setScheduleModal(false)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                setScheduleModal(false);
+                setScheduleError("");
+              }}
+            >
               Close
             </Button>
             <Button size="sm" disabled={busy || scheduleUsersLoading || !scheduleForm.interviewerUserId} onClick={() => void submitSchedule()}>
@@ -956,6 +1024,22 @@ export default function InterviewTimeline({
               />
             </Field>
           </FieldGroup>
+          {feedbackError ? (
+            <p
+              style={{
+                margin: "0 0 4px",
+                padding: "8px 12px",
+                borderRadius: 6,
+                background: "rgba(248,113,113,.12)",
+                border: "1px solid rgba(248,113,113,.35)",
+                color: "#FCA5A5",
+                fontSize: 13,
+                lineHeight: 1.45,
+              }}
+            >
+              {feedbackError}
+            </p>
+          ) : null}
           <DialogFooter>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setFeedbackModal({ open: false, row: null })}>
               Close

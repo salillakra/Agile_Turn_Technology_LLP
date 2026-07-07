@@ -158,9 +158,6 @@ async function consumeScope(
     windowMs
   );
   if (redisResult) {
-    if (!redisResult.ok) {
-      return { ...redisResult, scope };
-    }
     return redisResult;
   }
 
@@ -203,8 +200,9 @@ export async function assertOutboundEmailSendRateLimit(
 ): Promise<void> {
   const result = await consumeOutboundEmailSendRateLimit(recipient);
   if (!result.ok) {
+    const errResult = result as { ok: false; scope: OutboundEmailRateLimitScope; retryAfterSeconds: number };
     throw new RateLimitError(
-      `outbound email rate limited (${result.scope}); retry after ${result.retryAfterSeconds}s`
+      `outbound email rate limited (${errResult.scope}); retry after ${errResult.retryAfterSeconds}s`
     );
   }
 }
