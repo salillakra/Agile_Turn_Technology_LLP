@@ -120,11 +120,9 @@ function InviteUserDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" className="gap-1.5">
-          <UserPlus className="size-4" />
-          Invite User
-        </Button>
+      <DialogTrigger render={<Button size="sm" className="gap-1.5" />}>
+        <UserPlus className="size-4" />
+        Invite User
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -163,10 +161,8 @@ function InviteUserDialog() {
             </Field>
           </FieldGroup>
           <div className="flex justify-end gap-2 pt-2">
-            <DialogClose asChild>
-              <Button type="button" variant="outline" disabled={mutation.isPending}>
-                Cancel
-              </Button>
+            <DialogClose render={<Button type="button" variant="outline" disabled={mutation.isPending} />}>
+              Cancel
             </DialogClose>
             <Button type="submit" disabled={mutation.isPending} className="gap-1.5">
               {mutation.isPending ? (

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession, type DefaultSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import GoogleProvider from "next-auth/providers/google";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import bcrypt from "bcrypt";
 import { prisma } from "./prisma";
@@ -97,12 +98,19 @@ export const authOptions = {
         if (!user || !user.password) return null;
         const valid = await bcrypt.compare(
           String(credentials.password),
-          user.password
+          user.password,
         );
         if (!valid) return null;
 
-        const expected = typeof credentials.expectedRole === "string" ? credentials.expectedRole.trim() : "";
-        if (expected && ROLES.includes(expected as (typeof ROLES)[number]) && user.role !== expected) {
+        const expected =
+          typeof credentials.expectedRole === "string"
+            ? credentials.expectedRole.trim()
+            : "";
+        if (
+          expected &&
+          ROLES.includes(expected as (typeof ROLES)[number]) &&
+          user.role !== expected
+        ) {
           return null;
         }
 
@@ -120,6 +128,10 @@ export const authOptions = {
         };
       },
     }),
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID || "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+    }),
   ],
   callbacks: {
     jwt({ token, user }) {
@@ -128,7 +140,9 @@ export const authOptions = {
         token.role = (user as { role?: Role }).role;
         const remember = (user as { remember?: boolean }).remember === true;
         token.remember = remember;
-        const maxAgeSeconds = remember ? REMEMBER_MAX_AGE_SEC : SESSION_MAX_AGE_SEC;
+        const maxAgeSeconds = remember
+          ? REMEMBER_MAX_AGE_SEC
+          : SESSION_MAX_AGE_SEC;
         token.exp = Math.floor(Date.now() / 1000) + maxAgeSeconds;
       }
       return token;
@@ -141,6 +155,7 @@ export const authOptions = {
       return session;
     },
   },
+  debug: true,
 };
 
 /**
@@ -160,7 +175,10 @@ export async function getSession() {
 export async function requireAuth(allowedRoles?: (typeof ROLES)[number][]) {
   const session = await getSession();
   if (!session) redirect("/login");
-  if (allowedRoles?.length && !allowedRoles.includes(session.user.role as (typeof ROLES)[number])) {
+  if (
+    allowedRoles?.length &&
+    !allowedRoles.includes(session.user.role as (typeof ROLES)[number])
+  ) {
     redirect("/unauthorized");
   }
   return session;
