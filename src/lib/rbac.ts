@@ -151,3 +151,8 @@ export function canViewUserProfile(viewerRole: string | undefined, targetRole: s
   if (!targetRole) return false;
   return visibleUserRolesFor(viewerRole).includes(targetRole as Role);
 }
+
+/** Only ADMIN can invite new users to the platform. */
+export function canInviteUsers(role: string | undefined): boolean {
+  return isAdmin(role);
+}

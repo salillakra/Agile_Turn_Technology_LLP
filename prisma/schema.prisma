@@ -224,8 +224,26 @@ model User {
   crmClosuresUpdated       CrmClosure[]              @relation("CrmClosureUpdatedBy")
   crmInvoicesCreated       CrmInvoice[]              @relation("CrmInvoiceCreatedBy")
   crmInvoicesUpdated       CrmInvoice[]              @relation("CrmInvoiceUpdatedBy")
+  invitesSent              UserInvite[]              @relation("UserInviteInviter")
 
   @@map("users")
+}
+
+// Invite token for onboarding new team members. ADMIN creates an invite; user registers via /invite/[token].
+model UserInvite {
+  id        String    @id @default(cuid())
+  email     String
+  role      Role
+  token     String    @unique @default(cuid())
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  invitedBy String    @map("invited_by")
+  inviter   User      @relation("UserInviteInviter", fields: [invitedBy], references: [id])
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([email])
+  @@index([token])
+  @@map("user_invites")
 }
 
 /// Per-user profile data (separate from auth core on `User`). One row per user after registration or lazy-created on first profile API access.

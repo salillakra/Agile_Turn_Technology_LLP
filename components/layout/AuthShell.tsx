@@ -15,8 +15,8 @@ export default function AuthShell({ children, className }: AuthShellProps) {
 
       <header className="flex items-center justify-between px-6 py-5">
         <Link href="/" className="flex items-center gap-3 no-underline">
-          <div className="flex size-9 items-center justify-center rounded-md bg-primary text-xs font-semibold text-primary-foreground">
-            {themeConfig.brand.monogram}
+          <div className="flex h-9 items-center justify-center">
+            <img src="/agile_turn_logo.png" alt="Agile Turn Logo" className="h-full w-auto object-contain dark:invert" />
           </div>
           <div className="hidden sm:block">
             <p className="text-sm font-semibold tracking-[-0.02em] text-foreground">{themeConfig.brand.name}</p>

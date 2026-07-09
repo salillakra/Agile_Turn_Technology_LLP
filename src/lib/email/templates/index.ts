@@ -14,6 +14,7 @@ import { renderOfferSentEmail } from "@/src/lib/email/templates/offer-sent";
 import { renderPasswordResetEmail } from "@/src/lib/email/templates/password-reset";
 import { renderCandidateStageUpdateEmail } from "@/src/lib/email/templates/candidate-stage-update";
 import { renderStageChangedEmail } from "@/src/lib/email/templates/stage-changed";
+import { renderUserInviteEmail } from "@/src/lib/email/templates/user-invite";
 import type { EmailTemplateRenderer, RenderedEmail } from "@/src/lib/email/templates/types";
 import { emailParagraph } from "@/src/lib/email/templates/components";
 import { buildRenderedEmail } from "@/src/lib/email/templates/render-helpers";
@@ -32,6 +33,7 @@ const RENDERERS: Record<string, EmailTemplateRenderer> = {
   interview_notification: renderInterviewNotificationEmail,
   application_received: renderApplicationReceivedEmail,
   password_reset: renderPasswordResetEmail,
+  user_invite: renderUserInviteEmail,
 };
 
 function renderFallback(
