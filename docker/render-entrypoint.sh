@@ -1,5 +1,5 @@
 #!/bin/sh
-# Render.com all-in-one startup: migrate → AI service → worker → Next.js
+# All-in-one startup (Render / Azure): migrate → Redis → AI → worker → Next.js
 set -eu
 
 PORT="${PORT:-3000}"
@@ -8,11 +8,33 @@ AI_PORT="${AI_SERVICE_PORT:-8000}"
 AI_HOST="${AI_SERVICE_BIND:-127.0.0.1}"
 AI_URL="http://${AI_HOST}:${AI_PORT}"
 START_WORKER="${START_WORKER:-true}"
+# When no external REDIS_URL, start redis-server in-process (Azure / single-container).
+EMBEDDED_REDIS="${EMBEDDED_REDIS:-auto}"
 
-mkdir -p uploads/resumes /var/cache/aiservice/huggingface /var/cache/aiservice/sentence-transformers
+mkdir -p uploads/resumes /var/cache/aiservice/huggingface /var/cache/aiservice/sentence-transformers /var/lib/redis
 
 echo "[render] Running Prisma migrations..."
 npx prisma migrate deploy
+
+REDIS_PID=""
+if [ -z "${REDIS_URL:-}" ] && [ -z "${REDIS_HOST:-}" ]; then
+  if [ "$EMBEDDED_REDIS" = "auto" ] || [ "$EMBEDDED_REDIS" = "true" ] || [ "$EMBEDDED_REDIS" = "1" ]; then
+    echo "[render] Starting embedded Redis on 127.0.0.1:6379..."
+    redis-server --daemonize no --bind 127.0.0.1 --port 6379 --dir /var/lib/redis --save "" --appendonly no &
+    REDIS_PID=$!
+    export REDIS_URL="redis://127.0.0.1:6379"
+    i=0
+    until redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null | grep -q PONG; do
+      i=$((i + 1))
+      if [ "$i" -ge 30 ]; then
+        echo "[render] Embedded Redis failed to start" >&2
+        exit 1
+      fi
+      sleep 1
+    done
+    echo "[render] Embedded Redis is ready."
+  fi
+fi
 
 echo "[render] Starting AI service on ${AI_URL}..."
 (
@@ -58,6 +80,7 @@ shutdown() {
   echo "[render] Shutting down..."
   [ -n "${WORKER_PID:-}" ] && kill "$WORKER_PID" 2>/dev/null || true
   kill "$AI_PID" 2>/dev/null || true
+  [ -n "${REDIS_PID:-}" ] && kill "$REDIS_PID" 2>/dev/null || true
   wait 2>/dev/null || true
 }
 trap shutdown INT TERM

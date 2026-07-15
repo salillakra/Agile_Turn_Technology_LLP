@@ -20,11 +20,13 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Prisma client must be generated before next build
-RUN npx prisma generate
-
+# prisma.config.ts requires DATABASE_URL even for `generate` (not used at build time)
+ENV DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build?sslmode=disable"
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+
+# Prisma client must be generated before next build
+RUN npx prisma generate
 
 RUN node --max-old-space-size=4096 ./node_modules/next/dist/bin/next build
 
@@ -79,6 +81,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-venv \
     build-essential \
     libgomp1 \
+    redis-server \
+    redis-tools \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
