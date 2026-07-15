@@ -27,7 +27,8 @@ if [[ -f "$SECRETS_FILE" ]]; then
   # Only load known keys (avoid arbitrary code)
   while IFS='=' read -r k v; do
     case "$k" in
-      PG_ADMIN|PG_PASSWORD|NEXTAUTH_SECRET|ACR_NAME|PG_SERVER|REDIS_NAME|APP_NAME|RG|LOCATION|ENV_NAME|PREFIX)
+      PG_ADMIN|PG_PASSWORD|NEXTAUTH_SECRET|ACR_NAME|PG_SERVER|REDIS_NAME|APP_NAME|RG|LOCATION|ENV_NAME|PREFIX|\
+      SMTP_HOST|SMTP_PORT|SMTP_SECURE|SMTP_USER|SMTP_PASSWORD|SMTP_FROM|EMAIL_SENDING_DOMAIN|EMAIL_SEND_ENABLED|RESEND_API_KEY)
         [[ -n "${!k:-}" ]] || export "$k=$v"
         ;;
     esac
@@ -219,6 +220,36 @@ az acr build \
 FULL_IMAGE="${ACR_LOGIN}/${IMAGE_NAME}:${IMAGE_TAG}"
 
 echo "→ Deploying Container App..."
+# SMTP: Resend (or other) via secrets file — defaults keep email disabled if unset.
+SMTP_HOST="${SMTP_HOST:-}"
+SMTP_PORT="${SMTP_PORT:-465}"
+SMTP_SECURE="${SMTP_SECURE:-true}"
+SMTP_USER="${SMTP_USER:-}"
+SMTP_PASSWORD="${SMTP_PASSWORD:-}"
+SMTP_FROM="${SMTP_FROM:-}"
+EMAIL_SENDING_DOMAIN="${EMAIL_SENDING_DOMAIN:-}"
+EMAIL_SEND_ENABLED="${EMAIL_SEND_ENABLED:-0}"
+
+SMTP_ENV_ARGS=()
+SMTP_SECRET_ARGS=()
+if [[ -n "$SMTP_HOST" && -n "$SMTP_FROM" && -n "$SMTP_PASSWORD" ]]; then
+  SMTP_ENV_ARGS+=(
+    "EMAIL_SEND_ENABLED=${EMAIL_SEND_ENABLED}"
+    "SMTP_HOST=${SMTP_HOST}"
+    "SMTP_PORT=${SMTP_PORT}"
+    "SMTP_SECURE=${SMTP_SECURE}"
+    "SMTP_USER=${SMTP_USER:-resend}"
+    "SMTP_FROM=${SMTP_FROM}"
+    "SMTP_PASSWORD=secretref:smtp-password"
+  )
+  [[ -n "$EMAIL_SENDING_DOMAIN" ]] && SMTP_ENV_ARGS+=("EMAIL_SENDING_DOMAIN=${EMAIL_SENDING_DOMAIN}")
+  SMTP_SECRET_ARGS+=("smtp-password=${SMTP_PASSWORD}")
+  echo "  SMTP: enabled (host=${SMTP_HOST})"
+else
+  SMTP_ENV_ARGS+=("EMAIL_SEND_ENABLED=0")
+  echo "  SMTP: disabled (set SMTP_HOST/SMTP_FROM/SMTP_PASSWORD in .azure-deploy.secrets)"
+fi
+
 # First create without NEXTAUTH_URL (set after FQDN known), or use placeholder then update
 if ! az containerapp show -n "$APP_NAME" -g "$RG" &>/dev/null; then
   az containerapp create \
@@ -244,12 +275,31 @@ if ! az containerapp show -n "$APP_NAME" -g "$RG" &>/dev/null; then
       "RESUME_FILES_BASE_PATH=/app/uploads/resumes" \
       "START_WORKER=true" \
       "EMBEDDED_REDIS=true" \
-      "EMAIL_SEND_ENABLED=0" \
+      "${SMTP_ENV_ARGS[@]}" \
     --secrets \
       "database-url=${DATABASE_URL}" \
       "nextauth-secret=${NEXTAUTH_SECRET}" \
+      ${SMTP_SECRET_ARGS[@]+"${SMTP_SECRET_ARGS[@]}"} \
     -o none
 else
+  if ((${#SMTP_SECRET_ARGS[@]})); then
+    az containerapp secret set \
+      --name "$APP_NAME" \
+      --resource-group "$RG" \
+      --secrets \
+        "database-url=${DATABASE_URL}" \
+        "nextauth-secret=${NEXTAUTH_SECRET}" \
+        "${SMTP_SECRET_ARGS[@]}" \
+      -o none
+  else
+    az containerapp secret set \
+      --name "$APP_NAME" \
+      --resource-group "$RG" \
+      --secrets \
+        "database-url=${DATABASE_URL}" \
+        "nextauth-secret=${NEXTAUTH_SECRET}" \
+      -o none
+  fi
   az containerapp update \
     --name "$APP_NAME" \
     --resource-group "$RG" \
@@ -264,15 +314,8 @@ else
       "RESUME_FILES_BASE_PATH=/app/uploads/resumes" \
       "START_WORKER=true" \
       "EMBEDDED_REDIS=true" \
-      "EMAIL_SEND_ENABLED=0" \
       "REDIS_URL=" \
-    -o none
-  az containerapp secret set \
-    --name "$APP_NAME" \
-    --resource-group "$RG" \
-    --secrets \
-      "database-url=${DATABASE_URL}" \
-      "nextauth-secret=${NEXTAUTH_SECRET}" \
+      "${SMTP_ENV_ARGS[@]}" \
     -o none
 fi
 
