@@ -58,8 +58,16 @@ import {
   MagnifyingGlass,
   ArrowsClockwise,
   X,
+  UploadSimple,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
+import {
+  bulkUploadResumesForJob,
+  type BulkResumeImportResult,
+} from "@/lib/api/applicants";
+
+/** Must match `BULK_RESUME_MAX_FILES` in `src/lib/bulk-resume-import.ts`. */
+const BULK_RESUME_MAX_FILES = 100;
 
 interface ApplicantsProps {
   applicants: any[];
@@ -176,6 +184,14 @@ export default function Applicants({
   const [interviewPanelAppId, setInterviewPanelAppId] = useState("");
   const [interviewRefreshKey, setInterviewRefreshKey] = useState(0);
   const resumeInputRef = useRef<HTMLInputElement>(null);
+  const bulkInputRef = useRef<HTMLInputElement>(null);
+
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [bulkJobId, setBulkJobId] = useState("");
+  const [bulkFiles, setBulkFiles] = useState<File[]>([]);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkError, setBulkError] = useState("");
+  const [bulkResult, setBulkResult] = useState<BulkResumeImportResult | null>(null);
 
   const updateForm = (fields: Partial<typeof form>) => {
     setForm((prev) => ({ ...prev, ...fields }));
@@ -245,11 +261,79 @@ export default function Applicants({
     setModalOpen(true);
   };
 
+  const openBulkUpload = () => {
+    setBulkJobId(jobs[0]?.id || jobQ || "");
+    setBulkFiles([]);
+    setBulkError("");
+    setBulkResult(null);
+    if (bulkInputRef.current) bulkInputRef.current.value = "";
+    setBulkModalOpen(true);
+  };
+
+  const handleBulkFilesPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = e.target.files ? Array.from(e.target.files) : [];
+    if (list.length > BULK_RESUME_MAX_FILES) {
+      setBulkError(`Select at most ${BULK_RESUME_MAX_FILES} resumes.`);
+      setBulkFiles(list.slice(0, BULK_RESUME_MAX_FILES));
+      return;
+    }
+    setBulkError("");
+    setBulkFiles(list);
+  };
+
+  const submitBulkUpload = async () => {
+    if (!bulkJobId.trim()) {
+      setBulkError("Select an open position.");
+      return;
+    }
+    if (bulkFiles.length === 0) {
+      setBulkError("Select at least one resume (PDF, DOC, or DOCX).");
+      return;
+    }
+    setBulkLoading(true);
+    setBulkError("");
+    setBulkResult(null);
+    try {
+      const result = await bulkUploadResumesForJob(bulkJobId, bulkFiles);
+      setBulkResult(result);
+      await onRefresh();
+      window.dispatchEvent(new Event(NOTIFICATIONS_REFRESH_EVENT));
+    } catch (err) {
+      setBulkError(err instanceof Error ? err.message : "Bulk upload failed");
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
   const openEdit = (a: any) => {
     setEditData(a);
     setForm(applicantToForm(a));
+    setResumeFile(null);
+    if (resumeInputRef.current) resumeInputRef.current.value = "";
     setSaveError("");
     setModalOpen(true);
+  };
+
+  const uploadResumeForCandidate = async (candidateId: string) => {
+    if (!resumeFile) return;
+    const fd = new FormData();
+    fd.set("file", resumeFile);
+    const uploadRes = await fetch(
+      `/api/candidates/${encodeURIComponent(candidateId)}/resume`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        body: fd,
+      },
+    );
+    const uploadBody = await uploadRes.json().catch(() => ({}));
+    if (!uploadRes.ok) {
+      throw new Error(
+        uploadBody?.message ||
+          uploadBody?.error ||
+          `Resume upload failed (${uploadRes.status})`,
+      );
+    }
   };
 
   const computeMatchForNewCandidate = async (
@@ -574,6 +658,10 @@ export default function Applicants({
           }
         }
 
+        if (resumeFile) {
+          await uploadResumeForCandidate(candidateId);
+        }
+
         setModalOpen(false);
         setEditData(null);
         await onRefresh();
@@ -750,10 +838,21 @@ export default function Applicants({
           <h1 className="text-2xl font-bold tracking-tight">Active Pipeline</h1>
         </div>
         {allowCreate && (
-          <Button onClick={openAdd} className="gap-2 h-9 text-sm">
-            <Plus className="size-4" />
-            Add Applicant
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={openBulkUpload}
+              className="gap-2 h-9 text-sm"
+            >
+              <UploadSimple className="size-4" />
+              Bulk upload resumes
+            </Button>
+            <Button onClick={openAdd} className="gap-2 h-9 text-sm">
+              <Plus className="size-4" />
+              Add Applicant
+            </Button>
+          </div>
         )}
       </div>
 
@@ -972,6 +1071,130 @@ export default function Applicants({
         />
       )}
 
+      {/* Bulk resume import */}
+      <Dialog open={bulkModalOpen} onOpenChange={setBulkModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base">Bulk upload resumes</DialogTitle>
+            <DialogDescription>
+              Upload up to {BULK_RESUME_MAX_FILES} PDF/DOC/DOCX files. Each resume is
+              stored, queued for worker parsing, and added to the job pipeline as Applied.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="bulk-job">Position *</Label>
+              <Select
+                value={bulkJobId}
+                onValueChange={setBulkJobId}
+                disabled={bulkLoading}
+              >
+                <SelectTrigger id="bulk-job" className="w-full min-w-0">
+                  <SelectValue placeholder="Select position" />
+                </SelectTrigger>
+                <SelectContent>
+                  {jobs
+                    .filter(
+                      (j) =>
+                        !j.status ||
+                        String(j.status).toUpperCase() === "OPEN",
+                    )
+                    .map((j) => (
+                      <SelectItem key={j.id} value={j.id}>
+                        {j.title}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="bulk-resumes">Resume files *</Label>
+              <Input
+                ref={bulkInputRef}
+                id="bulk-resumes"
+                type="file"
+                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                multiple
+                className="cursor-pointer file:cursor-pointer"
+                disabled={bulkLoading}
+                onChange={handleBulkFilesPick}
+              />
+              {bulkFiles.length > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {bulkFiles.length} file{bulkFiles.length === 1 ? "" : "s"} selected
+                  {" · "}
+                  {Math.round(
+                    bulkFiles.reduce((sum, f) => sum + f.size, 0) / 1024,
+                  )}{" "}
+                  KB total
+                </p>
+              ) : null}
+            </div>
+
+            {bulkError ? (
+              <Alert variant="destructive">
+                <AlertDescription className="text-xs">{bulkError}</AlertDescription>
+              </Alert>
+            ) : null}
+
+            {bulkResult ? (
+              <div className="space-y-2 rounded-lg border border-border p-3">
+                <p className="text-sm font-medium">
+                  {bulkResult.succeeded} imported · {bulkResult.failed} failed ·{" "}
+                  {bulkResult.applicationsCreated} applications ·{" "}
+                  {bulkResult.parseEnqueued} queued for parse
+                </p>
+                {bulkResult.results.some((r) => !r.success) ? (
+                  <ScrollArea className="max-h-40">
+                    <ul className="space-y-1 pr-2">
+                      {bulkResult.results
+                        .filter((r) => !r.success)
+                        .map((r) => (
+                          <li key={r.fileName} className="text-xs text-destructive">
+                            {r.fileName}: {r.error}
+                          </li>
+                        ))}
+                    </ul>
+                  </ScrollArea>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={bulkLoading}
+              onClick={() => setBulkModalOpen(false)}
+            >
+              {bulkResult ? "Close" : "Cancel"}
+            </Button>
+            {!bulkResult ? (
+              <Button
+                type="button"
+                size="sm"
+                disabled={bulkLoading || bulkFiles.length === 0 || !bulkJobId}
+                onClick={() => void submitBulkUpload()}
+                className="gap-2"
+              >
+                {bulkLoading ? (
+                  <ArrowsClockwise className="size-4 animate-spin" />
+                ) : (
+                  <UploadSimple className="size-4" />
+                )}
+                {bulkLoading
+                  ? "Importing…"
+                  : `Import ${bulkFiles.length || ""} resume${bulkFiles.length === 1 ? "" : "s"}`}
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Add / Edit Form Dialog */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-xl">
@@ -1073,24 +1296,37 @@ export default function Applicants({
                 </Select>
               </div>
 
-              {!editData && (
-                <div className="space-y-3 border-y py-3 sm:col-span-2">
+              <div className="space-y-3 border-y py-3 sm:col-span-2">
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="resume-upload" className="font-semibold">
-                      Upload resume
+                      Upload resume{" "}
+                      {!editData ? (
+                        <span className="text-destructive font-normal">(required for new)</span>
+                      ) : (
+                        <span className="text-muted-foreground font-normal">(optional replace)</span>
+                      )}
                     </Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      PDF, DOC, or DOCX. After upload you can parse skills and score job match.
+                    </p>
                     <input
                       ref={resumeInputRef}
                       id="resume-upload"
                       type="file"
-                      accept=".pdf,.doc,.docx"
+                      accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                       disabled={saveLoading}
                       onChange={(e) =>
                         setResumeFile(e.target.files?.[0] ?? null)
                       }
                       className="text-xs text-muted-foreground file:mr-2 file:rounded-md file:border-0 file:bg-primary/10 file:px-2.5 file:py-1.5 file:text-xs file:font-semibold file:text-primary file:cursor-pointer"
                     />
+                    {resumeFile && (
+                      <p className="text-[11px] font-medium text-foreground truncate">
+                        Selected: {resumeFile.name}
+                      </p>
+                    )}
                   </div>
+                  {!editData && (
                   <div className="flex items-center justify-between gap-4">
                     <Button
                       variant="outline"
@@ -1110,6 +1346,7 @@ export default function Applicants({
                         : "No match threshold"}
                     </span>
                   </div>
+                  )}
 
                   {matchState.msg && (
                     <p className="text-[10px] font-medium text-muted-foreground">
@@ -1154,7 +1391,6 @@ export default function Applicants({
                     </div>
                   )}
                 </div>
-              )}
 
               <div className="flex flex-col gap-1.5 sm:col-span-2">
                 <Label>Rating</Label>

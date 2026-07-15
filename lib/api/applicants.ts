@@ -80,6 +80,47 @@ export async function uploadResume(candidateId: string, file: File): Promise<voi
   );
 }
 
+export type BulkResumeFileResult = {
+  fileName: string;
+  success: boolean;
+  candidateId?: string;
+  applicationId?: string;
+  parseEnqueued?: boolean;
+  reusedCandidate?: boolean;
+  error?: string;
+};
+
+export type BulkResumeImportResult = {
+  jobId: string;
+  jobTitle: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  applicationsCreated: number;
+  parseEnqueued: number;
+  results: BulkResumeFileResult[];
+};
+
+/** Bulk upload resumes for a job (max ~100). Server stores, enqueues parse workers, adds to pipeline. */
+export async function bulkUploadResumesForJob(
+  jobId: string,
+  files: File[]
+): Promise<BulkResumeImportResult> {
+  const fd = new FormData();
+  for (const file of files) {
+    fd.append("files", file);
+  }
+  const { data } = await apiClient.post<BulkResumeImportResult>(
+    `/jobs/${encodeURIComponent(jobId)}/resumes/bulk`,
+    fd,
+    {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 300_000,
+    }
+  );
+  return data;
+}
+
 export async function parseResume(candidateId: string): Promise<void> {
   await apiClient.post(`/candidates/${encodeURIComponent(candidateId)}/resume/parse`);
 }
