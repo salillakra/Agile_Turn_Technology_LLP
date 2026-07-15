@@ -9,6 +9,7 @@ out/
 .env
 .env.local
 .env.*.local
+.azure-deploy.secrets
 
 # Prisma generated client (regenerate via `npm run prisma:generate`)
 /generated/prisma

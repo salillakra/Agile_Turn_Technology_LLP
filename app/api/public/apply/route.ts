@@ -217,7 +217,10 @@ export async function POST(request: Request) {
     return apiError("INVALID_ID", "Malformed ID format", 400);
   }
 
-  const job = await prisma.job.findUnique({ where: { id: jobId } });
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: { id: true, status: true, ownerId: true },
+  });
   if (!job) return apiError("NOT_FOUND", "Job not found", 404);
   if (job.status !== "OPEN") {
     return apiError("FORBIDDEN", "Applications are only allowed for open jobs", 403);
@@ -231,7 +234,7 @@ export async function POST(request: Request) {
   }
 
   const existingCandidate = await prisma.candidate.findFirst({
-    where: { email },
+    where: { email, ownerId: job.ownerId },
     orderBy: { createdAt: "desc" },
     select: { id: true, resumeUrl: true },
   });
@@ -270,6 +273,8 @@ export async function POST(request: Request) {
           resumeUrl: resumeUrlFinal,
           resumeFileName: resumeFileName ?? undefined,
           candidateSource: fields.candidateSource,
+          ownerId: job.ownerId,
+          createdById: job.ownerId,
         },
         select: { id: true },
       })

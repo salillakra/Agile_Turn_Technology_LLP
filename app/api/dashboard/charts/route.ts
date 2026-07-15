@@ -28,6 +28,7 @@ import {
   dashboardRateLimitedResponse,
 } from "@/src/lib/dashboard-rate-limit";
 import { scheduleAnalyticsCacheRefresh } from "@/src/lib/enqueue-analytics-refresh";
+import { listScopedJobIds } from "@/src/lib/rbac-scope";
 import {
   DRILLDOWN_APPLICATIONS_API,
   DRILLDOWN_APPLICANTS_PAGE,
@@ -134,19 +135,13 @@ export async function GET(request: Request) {
 
   const dbStartedAt = Date.now();
   try {
-    // Non-admin roles are scoped to assigned jobs.
-    const isAdmin = role === "ADMIN";
+    const isAdminRole = role === "ADMIN";
     const scopedUserId = typeof userId === "string" ? userId.trim() : "";
-    const scopedJobs = isAdmin
+    const scopedJobIds = isAdminRole
       ? null
-      : await prisma.jobAssignment.findMany({
-          where: { userId: scopedUserId },
-          select: { jobId: true },
-          distinct: ["jobId"],
-        });
-    const scopedJobIds = isAdmin ? null : scopedJobs?.map((row) => row.jobId) ?? [];
+      : await listScopedJobIds(role, scopedUserId);
 
-    if (!isAdmin && scopedJobIds.length === 0) {
+    if (!isAdminRole && (!scopedJobIds || scopedJobIds.length === 0)) {
       const emptyPayload = {
         drillDown: {
           applicationsApiPath: DRILLDOWN_APPLICATIONS_API,
@@ -171,7 +166,7 @@ export async function GET(request: Request) {
     const applicationsWhere = {
       withdrawnAt: null as null,
       ...(createdAt ? { appliedDate: createdAt } : {}),
-      ...(!isAdmin ? { jobId: { in: scopedJobIds as string[] } } : {}),
+      ...(!isAdminRole ? { jobId: { in: scopedJobIds as string[] } } : {}),
     };
 
     const [stageGroups, appsByJob, appsByMonth, sourceRows] = await Promise.all([

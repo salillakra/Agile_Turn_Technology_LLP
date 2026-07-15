@@ -30,6 +30,7 @@ import {
   dashboardRateLimitedResponse,
 } from "@/src/lib/dashboard-rate-limit";
 import { scheduleAnalyticsCacheRefresh } from "@/src/lib/enqueue-analytics-refresh";
+import { listScopedJobIds } from "@/src/lib/rbac-scope";
 
 /** Dashboard cache uses Redis (`REDIS_URL`) or in-memory fallback; requires Node for TCP. */
 export const runtime = "nodejs";
@@ -162,24 +163,19 @@ export async function GET(request: Request) {
 
   const dbStartedAt = Date.now();
   try {
-    // Non-admin roles are scoped to assigned jobs.
-    const isAdmin = role === "ADMIN";
+    // Non-admin roles are scoped to owned jobs.
+    const isAdminRole = role === "ADMIN";
     const scopedUserId = typeof userId === "string" ? userId.trim() : "";
-    const scopedJobs = isAdmin
+    const scopedJobIds = isAdminRole
       ? null
-      : await prisma.jobAssignment.findMany({
-          where: { userId: scopedUserId },
-          select: { jobId: true, job: { select: { status: true } } },
-          distinct: ["jobId"],
-        });
+      : await listScopedJobIds(role, scopedUserId);
 
-    const scopedJobIds = isAdmin ? null : scopedJobs?.map((row) => row.jobId) ?? [];
     const jobScope =
-      !isAdmin && scopedJobIds.length > 0
+      !isAdminRole && scopedJobIds && scopedJobIds.length > 0
         ? { jobId: { in: scopedJobIds as string[] } as const }
         : {};
 
-    if (!isAdmin && scopedJobIds.length === 0) {
+    if (!isAdminRole && (!scopedJobIds || scopedJobIds.length === 0)) {
       const empty = {
         totalJobs: 0,
         openJobs: 0,
@@ -235,25 +231,16 @@ export async function GET(request: Request) {
       });
     }
 
-    const jobStatusPromise = isAdmin
+    const jobStatusPromise = isAdminRole
       ? prisma.job.groupBy({
           by: ["status"],
           _count: { id: true },
         })
-      : Promise.resolve([
-          {
-            status: "OPEN" as const,
-            _count: { id: scopedJobs?.filter((row) => row.job.status === "OPEN").length ?? 0 },
-          },
-          {
-            status: "PAUSED" as const,
-            _count: { id: scopedJobs?.filter((row) => row.job.status === "PAUSED").length ?? 0 },
-          },
-          {
-            status: "CLOSED" as const,
-            _count: { id: scopedJobs?.filter((row) => row.job.status === "CLOSED").length ?? 0 },
-          },
-        ]);
+      : prisma.job.groupBy({
+          by: ["status"],
+          where: { ownerId: scopedUserId },
+          _count: { id: true },
+        });
 
     const [jobStatusCounts, currentApps, timeInStage, prevAppsFromBatch] =
       compare && previousBounds

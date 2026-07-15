@@ -549,8 +549,11 @@ export default function Jobs({ jobs, applicants = [], refreshJobs }: JobProps) {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-base">
-              {assignJob ? `Assignments — ${assignJob.title}` : "Assignments"}
+              {assignJob ? `Audit assignments — ${assignJob.title}` : "Audit assignments"}
             </DialogTitle>
+            <p className="text-xs text-muted-foreground">
+              For compliance only — does not grant job or data access.
+            </p>
           </DialogHeader>
 
           <div className="flex flex-col gap-4 py-2">
@@ -561,6 +564,7 @@ export default function Jobs({ jobs, applicants = [], refreshJobs }: JobProps) {
                   <SelectTrigger id="assign-role"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="HIRING_MANAGER">Hiring Manager</SelectItem>
+                    <SelectItem value="RECRUITER">Recruiter</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

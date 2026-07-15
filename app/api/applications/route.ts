@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireApiAuth } from "@/src/lib/api-auth";
 import { canCreateCandidate, canViewCandidates } from "@/src/lib/rbac";
-import { isAdmin } from "@/src/lib/rbac";
+import {
+  assertSameOwnerJobAndCandidate,
+  listScopedJobIds,
+} from "@/src/lib/rbac-scope";
 import { apiError } from "@/src/lib/api-error-response";
 import { validateApplicationText } from "@/src/lib/application-text-limits";
 import { checkApplicationMutationRateLimit } from "@/src/lib/rate-limit";
@@ -102,18 +105,7 @@ export async function GET(request: Request) {
   const role = session.user?.role ?? "UNKNOWN";
   const userId = typeof session.user?.id === "string" ? session.user.id.trim() : "";
 
-  // Role-scoped visibility:
-  // ADMIN: all jobs
-  // HIRING_MANAGER + RECRUITER: assigned jobs only
-  let allowedJobIds: string[] | null = null;
-  if (role === "RECRUITER" || role === "HIRING_MANAGER") {
-    const links = await prisma.jobAssignment.findMany({
-      where: { userId },
-      select: { jobId: true },
-      distinct: ["jobId"],
-    });
-    allowedJobIds = links.map((l) => l.jobId);
-  }
+  const allowedJobIds = await listScopedJobIds(role, userId);
 
   if (jobId) {
     if (allowedJobIds != null && !allowedJobIds.includes(jobId)) {
@@ -240,14 +232,24 @@ export async function POST(request: Request) {
   if (!job) {
     return apiError("NOT_FOUND", "Job not found", 404);
   }
-  if (!isAdmin(session.user?.role)) {
-    const scoped = await prisma.jobAssignment.findUnique({
-      where: { jobId_userId: { jobId, userId: session.user?.id ?? "" } },
-      select: { id: true },
-    });
-    if (!scoped) {
-      return apiError("FORBIDDEN", "You can only create applications for assigned jobs", 403);
+
+  const ownership = await assertSameOwnerJobAndCandidate(
+    session.user?.role,
+    typeof session.user?.id === "string" ? session.user.id : undefined,
+    jobId,
+    candidateId
+  );
+  if (ownership.ok === false) {
+    if (ownership.reason === "NOT_FOUND") {
+      return apiError("NOT_FOUND", "Candidate or job not found", 404);
     }
+    return apiError(
+      "FORBIDDEN",
+      ownership.reason === "OWNER_MISMATCH"
+        ? "Candidate and job must belong to the same owner"
+        : "You do not have access to this job or candidate",
+      403
+    );
   }
 
   if (job.status !== "OPEN") {

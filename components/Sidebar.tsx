@@ -37,7 +37,7 @@ import { themeConfig } from "@/lib/theme";
 
 const NAV_ITEMS = [
   { id: "dashboard", href: "/dashboard", icon: SquaresFour, label: "Dashboard" },
-  { id: "crm", href: "/crm", icon: Buildings, label: "CRM" },
+  { id: "crm", href: "/crm", icon: Buildings, label: "CRM", adminOnly: true },
   { id: "jobs", href: "/jobs", icon: Briefcase, label: "Jobs" },
   { id: "applicants", href: "/applicants", icon: Users, label: "Applicants" },
   { id: "search", href: "/search", icon: Sparkle, label: "AI Search" },
@@ -55,12 +55,14 @@ export default function AppSidebar({
   activeCount = 0,
   showQueueMonitor = false,
   showEmailMonitoring = false,
+  showCrm = false,
 }) {
   const pathname = usePathname();
 
   const navItems = useMemo(() => {
-    if (!showEmailMonitoring) return NAV_ITEMS;
-    const out = [...NAV_ITEMS];
+    let items = NAV_ITEMS.filter((item) => !item.adminOnly || showCrm);
+    if (!showEmailMonitoring) return items;
+    const out = [...items];
     const idx = out.findIndex((n) => n.id === "reports");
     const insertAt = idx >= 0 ? idx + 1 : out.length;
     out.splice(insertAt, 0, {
@@ -70,7 +72,7 @@ export default function AppSidebar({
       label: "Email Monitoring",
     });
     return out;
-  }, [showEmailMonitoring]);
+  }, [showEmailMonitoring, showCrm]);
 
   const stats = [
     { label: "Jobs", value: jobsCount },

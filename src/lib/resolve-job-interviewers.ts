@@ -1,18 +1,11 @@
 import { prisma } from "@/src/lib/prisma";
 
-/**
- * Comma-separated names of users assigned to the job (interviewer / HM pool).
- */
+/** Display name of the job owner (primary stakeholder under owner-scoped silos). */
 export async function resolveJobInterviewerNames(jobId: string): Promise<string> {
-  const rows = await prisma.jobAssignment.findMany({
-    where: { jobId },
-    select: { user: { select: { name: true } } },
-    orderBy: { assignedAt: "asc" },
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: { owner: { select: { name: true } } },
   });
-
-  const names = rows
-    .map((r) => r.user.name?.trim())
-    .filter((n): n is string => Boolean(n));
-
-  return names.length > 0 ? names.join(", ") : "";
+  const name = job?.owner.name?.trim();
+  return name ?? "";
 }

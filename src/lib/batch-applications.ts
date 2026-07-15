@@ -229,14 +229,8 @@ async function createOneApplication(
     return { status: "skipped", reason: "JOB_NOT_OPEN" };
   }
 
-  if (!isAdmin(session.user?.role)) {
-    const scoped = await prisma.jobAssignment.findUnique({
-      where: { jobId_userId: { jobId, userId: session.user?.id ?? "" } },
-      select: { id: true },
-    });
-    if (!scoped) {
-      return { status: "skipped", reason: "FORBIDDEN" };
-    }
+  if (!(await canAccessJobByScope(session.user?.role, session.user?.id, jobId))) {
+    return { status: "skipped", reason: "FORBIDDEN" };
   }
 
   if (!options.skipEligibilityCheck) {

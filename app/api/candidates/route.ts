@@ -119,7 +119,9 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireApiAuth(canCreateCandidate);
   if (auth instanceof NextResponse) return auth;
-  const actorUserId = auth.session.user?.id;
+  const role = auth.session.user?.role;
+  const actorUserId = typeof auth.session.user?.id === "string" ? auth.session.user.id : undefined;
+  const ownerId = actorUserId ?? "";
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const candidateName = typeof body.candidateName === "string" ? body.candidateName.trim() : "";
@@ -165,7 +167,7 @@ export async function POST(request: Request) {
 
   const normalizedEmail = email.toLowerCase();
   const existing = await prisma.candidate.findFirst({
-    where: { email: normalizedEmail },
+    where: { email: normalizedEmail, ownerId },
     orderBy: { updatedAt: "desc" },
   });
 
@@ -194,6 +196,8 @@ export async function POST(request: Request) {
       candidateSource,
       totalExperience,
       relevantExperience,
+      ownerId,
+      createdById: ownerId,
     },
   });
 

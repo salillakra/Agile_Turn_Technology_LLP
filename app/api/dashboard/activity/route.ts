@@ -142,11 +142,7 @@ export async function GET(request: Request) {
         ? undefined
         : {
             application: {
-              job: {
-                assignments: {
-                  some: { userId: userId ?? "" },
-                },
-              },
+              job: { ownerId: userId ?? "" },
             },
           },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],

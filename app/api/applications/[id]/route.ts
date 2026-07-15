@@ -3,7 +3,7 @@ import { requireApiAuth } from "@/src/lib/api-auth";
 import { canEditCandidate, canViewCandidates } from "@/src/lib/rbac";
 import { isAdmin } from "@/src/lib/rbac";
 import { apiError } from "@/src/lib/api-error-response";
-import { canAccessJobByScope } from "@/src/lib/rbac-scope";
+import { assertSameOwnerJobAndCandidate, canAccessJobByScope } from "@/src/lib/rbac-scope";
 import { checkApplicationMutationRateLimit } from "@/src/lib/rate-limit";
 import { isValidCuid } from "@/src/lib/validate-id";
 import { prisma } from "@/src/lib/prisma";
@@ -144,14 +144,24 @@ export async function PATCH(request: Request, context: RouteContext) {
     return NextResponse.json(current);
   }
 
-  if (!isAdmin(role)) {
-    const scoped = await prisma.jobAssignment.findUnique({
-      where: { jobId_userId: { jobId: newJobId, userId: actorUserId ?? "" } },
-      select: { id: true },
-    });
-    if (!scoped) {
-      return apiError("FORBIDDEN", "You can only reassign applications to jobs you are assigned to", 403);
-    }
+  if (!(await canAccessJobByScope(role, actorUserId, newJobId))) {
+    return apiError("FORBIDDEN", "You can only reassign applications to jobs you own", 403);
+  }
+
+  const ownership = await assertSameOwnerJobAndCandidate(
+    role,
+    actorUserId,
+    newJobId,
+    application.candidateId
+  );
+  if (ownership.ok === false) {
+    return apiError(
+      "FORBIDDEN",
+      ownership.reason === "OWNER_MISMATCH"
+        ? "Candidate and target job must belong to the same owner"
+        : "You do not have access to the target job",
+      403
+    );
   }
 
   const targetJob = await prisma.job.findUnique({

@@ -6,7 +6,7 @@ import { apiError } from "@/src/lib/api-error-response";
 import { checkApplicationMutationRateLimit } from "@/src/lib/rate-limit";
 import { isValidCuid } from "@/src/lib/validate-id";
 import { prisma } from "@/src/lib/prisma";
-import { isAdmin } from "@/src/lib/rbac";
+import { listScopedJobIds } from "@/src/lib/rbac-scope";
 import {
   notifyAssignedInterviewersForInterviewStage,
   notifyHiringManagersStageChanged,
@@ -122,21 +122,11 @@ export async function POST(request: Request) {
   }
 
   const scoped = applications;
-  const allowedJobIds = isAdmin(role)
-    ? null
-    : new Set(
-        (
-          await prisma.jobAssignment.findMany({
-            where: { userId },
-            select: { jobId: true },
-            distinct: ["jobId"],
-          })
-        ).map((r) => r.jobId)
-      );
+  const allowedJobIds = await listScopedJobIds(role, userId);
   const scopeFiltered =
     allowedJobIds == null
       ? scoped
-      : scoped.filter((a) => allowedJobIds.has(a.jobId));
+      : scoped.filter((a) => allowedJobIds.includes(a.jobId));
   if (scopeFiltered.length === 0) {
     return apiError("FORBIDDEN", "No access to selected applications", 403);
   }

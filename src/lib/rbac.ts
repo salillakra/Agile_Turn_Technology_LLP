@@ -23,33 +23,32 @@ export function isRecruiter(role: string | undefined): boolean {
   return role === "RECRUITER";
 }
 
-// ─── Job RBAC (final policy) ─────────────────────────────────────────────────────────────────
-// ADMIN: create/update/delete, set OPEN/PAUSED/CLOSED, assign HMs.
-// HIRING_MANAGER: update assigned jobs, set OPEN/PAUSED/CLOSED on assigned jobs, manage recruiter assignments.
-// RECRUITER: view assigned jobs only (no create/update/delete/status mutation).
+// ─── Job RBAC (owner-scoped silos) ─────────────────────────────────────────────────────────
+// ADMIN: full visibility; create/update/delete any job; audit assignments.
+// HIRING_MANAGER / RECRUITER: create and manage own jobs (`ownerId = self`); strict silo.
 
 /** Only ADMIN can delete jobs. */
 export function canDeleteJob(role: string | undefined): boolean {
   return isAdmin(role);
 }
 
-/** Only ADMIN can create jobs. */
+/** ADMIN, HIRING_MANAGER, and RECRUITER create jobs (owner set in route). */
 export function canCreateJob(role: string | undefined): boolean {
-  return isAdmin(role);
+  return isAdmin(role) || isHiringManager(role) || isRecruiter(role);
 }
 
-/** ADMIN and HIRING_MANAGER can update jobs (HM is still object-scoped in route checks). */
+/** ADMIN and job owners (HM/recruiter) can update own jobs — scope enforced in routes. */
 export function canUpdateJob(role: string | undefined): boolean {
-  return isAdmin(role) || isHiringManager(role);
+  return isAdmin(role) || isHiringManager(role) || isRecruiter(role);
 }
 
-/** ADMIN and HIRING_MANAGER can set OPEN/PAUSED/CLOSED (HM object scope enforced in routes). */
+/** ADMIN and job owners can set OPEN/PAUSED/CLOSED on own jobs. */
 export function canSetJobStatusTo(
   role: string | undefined,
   newStatus: "OPEN" | "PAUSED" | "CLOSED"
 ): boolean {
   void newStatus;
-  return isAdmin(role) || isHiringManager(role);
+  return isAdmin(role) || isHiringManager(role) || isRecruiter(role);
 }
 
 /** ADMIN, HIRING_MANAGER and RECRUITER can add candidates (scope enforced per job in routes). */
@@ -72,7 +71,7 @@ export function canDeleteCandidateAdmin(role: string | undefined): boolean {
   return isAdmin(role);
 }
 
-/** All defined roles can view candidates; HM/recruiter are constrained to assigned-job scope. */
+/** All defined roles can view candidates; HM/recruiter are constrained to owned-candidate scope. */
 export function canViewCandidates(role: string | undefined): boolean {
   return ROLES.includes(role as Role);
 }
@@ -101,12 +100,12 @@ export function canDeleteResume(role: string | undefined): boolean {
   return canViewCandidates(role);
 }
 
-/** ADMIN and HIRING_MANAGER can assign/remove recruiters on jobs (HM scope checked in routes). */
+/** ADMIN-only audit assignments (`JobAssignment` does not grant data access). */
 export function canManageRecruiterAssignments(role: string | undefined): boolean {
-  return isAdmin(role) || isHiringManager(role);
+  return isAdmin(role);
 }
 
-/** Only ADMIN can assign HIRING_MANAGER users to jobs. */
+/** ADMIN-only audit assignments for hiring managers. */
 export function canAssignHiringManagers(role: string | undefined): boolean {
   return isAdmin(role);
 }

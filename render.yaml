@@ -1,0 +1,71 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# Deploy: connect repo → Render reads this file → creates Postgres, Redis, Web.
+# Or create services manually and use docker build --target render.
+#
+# After Postgres is created, run once in Render Shell / psql:
+#   CREATE EXTENSION IF NOT EXISTS vector;
+
+databases:
+  - name: ats-postgres
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+    ipAllowList: []
+
+services:
+  - type: keyvalue
+    name: ats-redis
+    plan: free
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
+
+  - type: web
+    name: ats-app
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Final Dockerfile stage is "render" (used by default when no --target is set)
+    healthCheckPath: /api/health
+    numInstances: 1
+    disk:
+      name: ats-uploads
+      mountPath: /app/uploads
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ats-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: ats-redis
+          property: connectionString
+      - key: NEXTAUTH_SECRET
+        generateValue: true
+      - key: NEXTAUTH_URL
+        sync: false
+      - key: AI_SERVICE_URL
+        value: http://127.0.0.1:8000
+      - key: RESUME_FILES_BASE_PATH
+        value: /app/uploads/resumes
+      - key: START_WORKER
+        value: "true"
+      - key: EMAIL_SEND_ENABLED
+        value: "0"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false

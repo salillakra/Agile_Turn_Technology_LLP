@@ -182,6 +182,8 @@ model User {
   interviewScheduleChanges InterviewScheduleChange[] @relation("InterviewScheduleChangedBy")
   interviewCancellations   InterviewCancellation[]   @relation("InterviewCancelledBy")
   createdJobs              Job[]
+  ownedJobs                Job[]                     @relation("JobOwner")
+  ownedCandidates          Candidate[]               @relation("CandidateOwner")
   assignedJobLinks         JobAssignment[]
   reportExportLogs         ReportExportLog[]
   notifications            Notification[]
@@ -375,6 +377,9 @@ model Job {
   status             JobStatus              @default(OPEN)
   createdAt          DateTime               @default(now()) @map("created_at")
   updatedAt          DateTime               @updatedAt @map("updated_at")
+  /// Data silo owner (HM/recruiter sees only own rows; ADMIN sees all).
+  ownerId            String                 @map("owner_id")
+  owner              User                   @relation("JobOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   createdBy          String                 @map("created_by")
   updatedById        String?                @map("updated_by_id")
   creator            User                   @relation(fields: [createdBy], references: [id], onDelete: Restrict)
@@ -383,6 +388,7 @@ model Job {
   assignments        JobAssignment[]
   crmRequirement     CrmRequirement?
 
+  @@index([ownerId])
   @@index([updatedById])
   @@map("jobs")
 }
@@ -493,6 +499,9 @@ model Candidate {
   /// pgvector embedding for similarity search (vector(384)); written alongside `embedding`.
   embeddingVector       Unsupported("vector")? @map("embedding_vector")
   embeddingUpdatedAt    DateTime?              @map("embedding_updated_at")
+  /// Data silo owner (duplicate emails allowed across different owners).
+  ownerId               String                 @map("owner_id")
+  owner                 User                   @relation("CandidateOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   createdById           String?                @map("created_by_id")
   updatedById           String?                @map("updated_by_id")
   createdAt             DateTime               @default(now()) @map("created_at")
@@ -509,6 +518,7 @@ model Candidate {
   parsedResumes         ParsedResume[]
   emailPreference       EmailPreference?
 
+  @@index([ownerId])
   @@index([createdById])
   @@index([updatedById])
   @@map("candidates")

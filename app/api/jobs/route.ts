@@ -142,7 +142,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid session" }, { status: 401 });
   }
 
-  const result = await createJobFromBody(userId.trim(), body);
+  const result = await createJobFromBody(userId.trim(), body, {
+    isAdminCreator: session.user?.role === "ADMIN",
+  });
   if (!result.ok) {
     const errResult = result as { ok: false; status: number; error: string; details?: unknown };
     return NextResponse.json(

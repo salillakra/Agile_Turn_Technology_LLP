@@ -53,7 +53,7 @@ export type JobCreateResult =
 export async function createJobFromBody(
   creatorId: string,
   body: Record<string, unknown>,
-  options?: { enqueueEmbedding?: boolean }
+  options?: { enqueueEmbedding?: boolean; isAdminCreator?: boolean }
 ): Promise<JobCreateResult> {
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const department = typeof body.department === "string" ? body.department.trim() : "";
@@ -117,7 +117,19 @@ export async function createJobFromBody(
   const tags = arrayOfStrings(body.tags);
   const employmentType =
     typeof body.employmentType === "string" ? body.employmentType.trim().toUpperCase() : "";
-  const hiringManagerIds = arrayOfStrings(body.hiringManagerIds);
+
+  let ownerId = creatorId;
+  if (options?.isAdminCreator && typeof body.ownerId === "string" && body.ownerId.trim()) {
+    const requestedOwnerId = body.ownerId.trim();
+    const ownerUser = await prisma.user.findUnique({
+      where: { id: requestedOwnerId },
+      select: { id: true, role: true },
+    });
+    if (!ownerUser || ownerUser.role === "ADMIN") {
+      return { ok: false, status: 400, error: "ownerId must be a HIRING_MANAGER or RECRUITER user" };
+    }
+    ownerId = requestedOwnerId;
+  }
 
   const jobMeta = {
     employmentType,
@@ -159,22 +171,9 @@ export async function createJobFromBody(
         ? yearsOfExperience
         : undefined;
 
-  if (hiringManagerIds.length > 0) {
-    const hmCount = await prisma.user.count({
-      where: { id: { in: hiringManagerIds }, role: "HIRING_MANAGER" },
-    });
-    if (hmCount !== hiringManagerIds.length) {
-      return {
-        ok: false,
-        status: 400,
-        error: "All hiringManagerIds must belong to HIRING_MANAGER users",
-      };
-    }
-  }
-
   try {
     const job = await prisma.$transaction(async (tx) => {
-      const created = await tx.job.create({
+      return tx.job.create({
         data: {
           title,
           department,
@@ -187,19 +186,9 @@ export async function createJobFromBody(
           preferredSkills,
           status,
           createdBy: creatorId,
+          ownerId,
         },
       });
-      if (hiringManagerIds.length > 0) {
-        await tx.jobAssignment.createMany({
-          data: hiringManagerIds.map((hmId) => ({
-            jobId: created.id,
-            userId: hmId,
-            assignedById: creatorId,
-          })),
-          skipDuplicates: true,
-        });
-      }
-      return created;
     });
 
     if (options?.enqueueEmbedding !== false) {
