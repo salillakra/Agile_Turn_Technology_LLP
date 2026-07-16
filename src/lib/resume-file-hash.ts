@@ -7,7 +7,7 @@ import {
 } from "@/src/lib/resume-storage";
 
 /**
- * SHA-256 (hex) of the on-disk résumé bytes referenced by `resumeUrl` (local API storage only).
+ * SHA-256 (hex) of the on-disk resume bytes referenced by `resumeUrl` (local API storage only).
  * Used for idempotency / change detection on `ResumeParseJob.fileHash`.
  */
 export async function computeResumeSha256HexFromResumeUrl(

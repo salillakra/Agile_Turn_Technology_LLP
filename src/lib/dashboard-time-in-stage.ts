@@ -4,9 +4,11 @@ import { prisma } from "@/src/lib/prisma";
 
 const MS_PER_DAY = 86_400_000;
 
-type ApplicationAppliedDateClause =
-  | { gte: Date }
-  | { gte: Date; lt: Date };
+type ApplicationAppliedDateClause = {
+  gte?: Date;
+  lte?: Date;
+  lt?: Date;
+};
 
 const STAGE_CHANGE_ACTION = "STAGE_CHANGE";
 

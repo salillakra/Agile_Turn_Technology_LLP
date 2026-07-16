@@ -66,7 +66,7 @@ function candidateHasStructuredParseProfile(candidate: CandidateResumeQualityInp
 }
 
 /**
- * Confidence in résumé parse / structured profile quality [0, 1].
+ * Confidence in resume parse / structured profile quality [0, 1].
  */
 export function scoreResumeParsingQuality(input: AiConfidenceInput): number {
   const profileScore = input.signals.resumeQuality.resumeQualityScore / 100;

@@ -41,7 +41,7 @@ function notFoundNoResume(): NextResponse {
 /**
  * GET /api/candidates/[id]/resume
  *
- * Downloads the candidate's résumé (authenticated). Uses `resumeUrl` + on-disk file under
+ * Downloads the candidate's resume (authenticated). Uses `resumeUrl` + on-disk file under
  * `uploads/resumes`. `Content-Disposition: attachment` triggers download in browsers.
  *
  * **RBAC:** `canReadResume` — ADMIN, RECRUITER, and HIRING_MANAGER (read-only for HM).
@@ -133,7 +133,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
  * Saves under uploads/resumes, sets `resumeUrl` + `resumeFileName`, enqueues a background parse job,
  * and returns candidate detail immediately (parsing runs in the worker — poll `GET .../parse-status`).
  *
- * **Replacement:** If the candidate already had a locally stored résumé, the old file is deleted **after**
+ * **Replacement:** If the candidate already had a locally stored resume, the old file is deleted **after**
  * the new file is written and the DB row is updated — so a failed write/update does not remove the prior file.
  *
  * **RBAC:** `canUploadResume` — ADMIN and RECRUITER only (upload/replace/delete previous file). HIRING_MANAGER → 403.

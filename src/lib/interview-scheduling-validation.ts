@@ -362,7 +362,7 @@ export function validateInterviewScheduleInput(params: {
     value: {
       scheduledAt,
       durationMinutes: durationResult,
-      meetingLink: linkResult,
+      meetingLink: linkResult as string | null,
     },
   };
 }

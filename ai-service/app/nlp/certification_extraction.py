@@ -1,5 +1,5 @@
 """
-Extract professional certifications from résumé text.
+Extract professional certifications from resume text.
 
 Parses CERTIFICATIONS / LICENSES sections and matches vendor-specific cert patterns
 (AWS, Google Cloud, Azure, Cisco, CompTIA, etc.).
@@ -327,7 +327,7 @@ def _dedupe_certifications(candidates: list[str]) -> list[str]:
         seen.add(key)
         cleaned.append(label)
 
-    # Drop shorter labels subsumed by a longer certification on the same résumé.
+    # Drop shorter labels subsumed by a longer certification on the same resume.
     out: list[str] = []
     for label in cleaned:
         lower = label.lower()

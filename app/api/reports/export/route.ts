@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { apiError } from "@/src/lib/api-error-response";
 import { requireDashboardAuth } from "@/src/lib/dashboard-api";
 import { isValidCuid } from "@/src/lib/validate-id";
-import { getApplicationsCreatedAtFilter, parseDashboardRange } from "@/src/lib/dashboard-range";
+import { getApplicationsCreatedAtFilter, parseDashboardRangeParams, dashboardRangeCacheToken, getDateFilterOptions } from "@/src/lib/dashboard-range";
 import { prisma } from "@/src/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { getReportsJobScope } from "@/src/lib/reports-job-filter";
@@ -110,9 +110,13 @@ export async function GET(request: Request) {
     );
   }
 
-  const range = parseDashboardRange(searchParams.get("range"));
-  if (range == null) {
-    return apiError("INVALID_RANGE", "range must be one of: 7d, 30d, 90d, all", 400);
+  const parsedRange = parseDashboardRangeParams(searchParams);
+  if (parsedRange == null) {
+    return apiError(
+      "INVALID_RANGE",
+      "range must be one of: 7d, 30d, 90d, all, or custom with dateFrom",
+      400
+    );
   }
 
   const jobId = searchParams.get("jobId")?.trim() || "";
@@ -141,12 +145,14 @@ export async function GET(request: Request) {
     throw e;
   }
 
-  const createdAtFilter = getApplicationsCreatedAtFilter(range);
+  const dateFilterOptions = getDateFilterOptions(parsedRange);
+  const createdAtFilter = getApplicationsCreatedAtFilter(parsedRange.range, dateFilterOptions);
+  const rangeKey = dashboardRangeCacheToken(parsedRange);
   const exportDataCacheKey = buildReportsCacheKey({
     endpoint: "export-data",
     role: String(role),
     userId,
-    range,
+    range: rangeKey,
     jobId,
     department,
     type,
@@ -193,7 +199,7 @@ export async function GET(request: Request) {
     userId: typeof userId === "string" ? userId : undefined,
     role: String(role),
     exportType: type,
-    reportRange: range,
+    reportRange: rangeKey,
     jobId,
     department,
     rowCount: rows.length,
@@ -275,7 +281,7 @@ export async function GET(request: Request) {
         doc.fontSize(18).text("Recruitment Report Summary");
         doc.moveDown(0.5);
         doc.fontSize(10).fillColor("#555555").text(
-          `Generated: ${new Date().toISOString()}  |  Range: ${range}  |  Department: ${department || "all"}  |  JobId: ${jobId || "all"}`
+          `Generated: ${new Date().toISOString()}  |  Range: ${rangeKey}  |  Department: ${department || "all"}  |  JobId: ${jobId || "all"}`
         );
         doc.fillColor("#000000");
         doc.moveDown();

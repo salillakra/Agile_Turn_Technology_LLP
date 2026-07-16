@@ -5,6 +5,9 @@ import { enqueueResumeParseForCandidate } from "@/src/lib/enqueue-resume-parse";
 import { canUploadResume } from "@/src/lib/rbac";
 import { prisma } from "@/src/lib/prisma";
 import { isValidCuid } from "@/src/lib/validate-id";
+import { executeResumeParseJob } from "@/src/lib/process-pending-parse-jobs";
+import { markResumeParseJobProcessing } from "@/src/lib/resume-parse-job-status";
+import { isResumeParseReady } from "@/src/lib/queue-job-status";
 
 export const runtime = "nodejs";
 
@@ -13,11 +16,12 @@ type RouteContext = { params: Promise<{ id: string }> };
 /**
  * POST /api/candidates/[id]/resume/parse
  *
- * Enqueues résumé parsing on BullMQ (`resumeParsingQueue`). Returns immediately;
+ * Enqueues resume parsing on BullMQ (`resumeParsingQueue`). Returns immediately;
  * the worker updates `ResumeParseJob` (poll `GET .../parse-status`).
  *
  * **Idempotency:** Same `fileHash` returns the existing job (re-queues if still PENDING).
  * **Query `force=1`:** Always create a new `ResumeParseJob` row.
+ * **Query `sync=1`:** Run parse inline in this request (for apply flow; no worker required).
  *
  * **RBAC:** `canUploadResume` — ADMIN and RECRUITER only.
  */
@@ -30,6 +34,8 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   const { searchParams } = new URL(request.url);
   const forceRaw = searchParams.get("force")?.trim().toLowerCase() ?? "";
   const forceNewJob = forceRaw === "1" || forceRaw === "true" || forceRaw === "yes";
+  const syncRaw = searchParams.get("sync")?.trim().toLowerCase() ?? "";
+  const syncInline = syncRaw === "1" || syncRaw === "true" || syncRaw === "yes";
 
   const { id } = await context.params;
   if (!id?.trim()) {
@@ -41,7 +47,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
 
   const candidate = await prisma.candidate.findUnique({
     where: { id },
-    select: { id: true, resumeUrl: true },
+    select: { id: true, resumeUrl: true, candidateName: true },
   });
 
   if (!candidate) {
@@ -52,7 +58,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   if (!resumeUrl) {
     return apiError(
       "NO_RESUME",
-      "Candidate has no uploaded résumé; upload a file before requesting parse.",
+      "Candidate has no uploaded resume; upload a file before requesting parse.",
       400
     );
   }
@@ -74,9 +80,82 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     return apiError("QUEUE_UNAVAILABLE", result.message, 503);
   }
 
+  if (syncInline && !isResumeParseReady(result.job.status)) {
+    await markResumeParseJobProcessing(prisma, {
+      jobId: result.job.id,
+      attemptCount: 1,
+    });
+    const run = await executeResumeParseJob(
+      prisma,
+      {
+        id: result.job.id,
+        candidateId: id,
+        fileHash: result.job.fileHash,
+        llmRetryCount: 0,
+      },
+      {
+        resumeUrl,
+        candidateName: candidate.candidateName ?? "",
+      }
+    );
+    if (run.outcome === "failed") {
+      return apiError("PARSE_FAILED", run.error, 500);
+    }
+    const refreshed = await prisma.resumeParseJob.findUnique({
+      where: { id: result.job.id },
+      select: {
+        id: true,
+        candidateId: true,
+        status: true,
+        fileHash: true,
+        resultJson: true,
+        error: true,
+        bullmqJobId: true,
+        attemptCount: true,
+        startedAt: true,
+        completedAt: true,
+        failedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (!refreshed) {
+      return apiError("NOT_FOUND", "Parse job not found after sync run", 404);
+    }
+    return NextResponse.json(
+      {
+        message: "Parse completed inline.",
+        sync: true,
+        idempotent: result.idempotent,
+        job: refreshed,
+        resumeParseJobId: refreshed.id,
+        status: refreshed.status,
+        result: refreshed.resultJson,
+        error: refreshed.error,
+      },
+      { status: 200, headers: { "X-Resume-Parse-Processing": "sync" } }
+    );
+  }
+
+  if (syncInline && isResumeParseReady(result.job.status)) {
+    return NextResponse.json(
+      {
+        message: "Parse already complete.",
+        sync: true,
+        idempotent: true,
+        job: result.job,
+        resumeParseJobId: result.job.id,
+        status: result.job.status,
+        result: result.job.resultJson,
+        error: result.job.error,
+      },
+      { status: 200, headers: { "X-Resume-Parse-Processing": "sync" } }
+    );
+  }
+
   const status = result.idempotent ? 200 : 201;
   const message = result.idempotent
-    ? "Same résumé file as a previous parse; returning existing job."
+    ? "Same resume file as a previous parse; returning existing job."
     : "Parse job enqueued; processing runs in the background worker.";
 
   return NextResponse.json(

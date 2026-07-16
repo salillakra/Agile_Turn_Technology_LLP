@@ -1,4 +1,4 @@
-"""Safe resolution of résumé file paths for service-to-service reads."""
+"""Safe resolution of resume file paths for service-to-service reads."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ PDF_SUFFIX = ".pdf"
 
 
 class ResumePathError(ValueError):
-    """Invalid or disallowed résumé path."""
+    """Invalid or disallowed resume path."""
 
 
 def resolve_resume_pdf_path(file_path: str, base_dir: Path | None) -> Path:
@@ -46,6 +46,6 @@ def resolve_resume_pdf_path(file_path: str, base_dir: Path | None) -> Path:
         raise ResumePathError(f"Only {PDF_SUFFIX} files are supported")
 
     if not candidate.is_file():
-        raise ResumePathError(f"Résumé file not found: {candidate}")
+        raise ResumePathError(f"resume file not found: {candidate}")
 
     return candidate

@@ -4,7 +4,10 @@ import { apiError } from "@/src/lib/api-error-response";
 import {
   getApplicationsCreatedAtFilter,
   getPreviousApplicationsCreatedAtFilter,
-  parseDashboardRange,
+  parseDashboardRangeParams,
+  dashboardRangeCacheToken,
+  getDateFilterOptions,
+  isBoundedDashboardRange,
 } from "@/src/lib/dashboard-range";
 import {
   dashboardDatabaseError,
@@ -27,6 +30,7 @@ import {
   dashboardRateLimitedResponse,
 } from "@/src/lib/dashboard-rate-limit";
 import { scheduleAnalyticsCacheRefresh } from "@/src/lib/enqueue-analytics-refresh";
+import { listScopedJobIds } from "@/src/lib/rbac-scope";
 
 /** Dashboard cache uses Redis (`REDIS_URL`) or in-memory fallback; requires Node for TCP. */
 export const runtime = "nodejs";
@@ -81,11 +85,14 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const rangeRaw = searchParams.get("range");
-  const range = parseDashboardRange(rangeRaw);
-  if (range == null) {
+  const parsedRange = parseDashboardRangeParams(searchParams);
+  if (parsedRange == null) {
     return withDashboardTelemetry(
-      apiError("INVALID_RANGE", "range must be one of: 7d, 30d, 90d, all", 400),
+      apiError(
+        "INVALID_RANGE",
+        "range must be one of: 7d, 30d, 90d, all, or custom with dateFrom",
+        400
+      ),
       {
         endpoint: ENDPOINT,
         role,
@@ -98,11 +105,11 @@ export async function GET(request: Request) {
   }
 
   const compare = parseCompareFlag(searchParams.get("compare"));
-  if (compare && range === "all") {
+  if (compare && !isBoundedDashboardRange(parsedRange)) {
     return withDashboardTelemetry(
       apiError(
         "INVALID_COMPARE",
-        "compare=true requires a bounded range (7d, 30d, or 90d), not all",
+        "compare=true requires a bounded range, not all",
         400
       ),
       {
@@ -116,10 +123,11 @@ export async function GET(request: Request) {
     );
   }
 
+  const rangeKey = dashboardRangeCacheToken(parsedRange);
   const cacheKey = dashboardSummaryCacheLogicalKey({
     role,
     userId,
-    range,
+    range: rangeKey,
     compare,
   });
   const { value: cached } = await getDashboardAnalyticsCache<Record<string, unknown>>(cacheKey);
@@ -147,29 +155,27 @@ export async function GET(request: Request) {
     role,
   });
 
-  const createdAt = getApplicationsCreatedAtFilter(range);
-  const previousBounds = compare ? getPreviousApplicationsCreatedAtFilter(range) : null;
+  const dateFilterOptions = getDateFilterOptions(parsedRange);
+  const createdAt = getApplicationsCreatedAtFilter(parsedRange.range, dateFilterOptions);
+  const previousBounds = compare
+    ? getPreviousApplicationsCreatedAtFilter(parsedRange.range, dateFilterOptions)
+    : null;
 
   const dbStartedAt = Date.now();
   try {
-    // Non-admin roles are scoped to assigned jobs.
-    const isAdmin = role === "ADMIN";
+    // Non-admin roles are scoped to owned jobs.
+    const isAdminRole = role === "ADMIN";
     const scopedUserId = typeof userId === "string" ? userId.trim() : "";
-    const scopedJobs = isAdmin
+    const scopedJobIds = isAdminRole
       ? null
-      : await prisma.jobAssignment.findMany({
-          where: { userId: scopedUserId },
-          select: { jobId: true, job: { select: { status: true } } },
-          distinct: ["jobId"],
-        });
+      : await listScopedJobIds(role, scopedUserId);
 
-    const scopedJobIds = isAdmin ? null : scopedJobs?.map((row) => row.jobId) ?? [];
     const jobScope =
-      !isAdmin && scopedJobIds.length > 0
+      !isAdminRole && scopedJobIds && scopedJobIds.length > 0
         ? { jobId: { in: scopedJobIds as string[] } as const }
         : {};
 
-    if (!isAdmin && scopedJobIds.length === 0) {
+    if (!isAdminRole && (!scopedJobIds || scopedJobIds.length === 0)) {
       const empty = {
         totalJobs: 0,
         openJobs: 0,
@@ -225,25 +231,16 @@ export async function GET(request: Request) {
       });
     }
 
-    const jobStatusPromise = isAdmin
+    const jobStatusPromise = isAdminRole
       ? prisma.job.groupBy({
           by: ["status"],
           _count: { id: true },
         })
-      : Promise.resolve([
-          {
-            status: "OPEN" as const,
-            _count: { id: scopedJobs?.filter((row) => row.job.status === "OPEN").length ?? 0 },
-          },
-          {
-            status: "PAUSED" as const,
-            _count: { id: scopedJobs?.filter((row) => row.job.status === "PAUSED").length ?? 0 },
-          },
-          {
-            status: "CLOSED" as const,
-            _count: { id: scopedJobs?.filter((row) => row.job.status === "CLOSED").length ?? 0 },
-          },
-        ]);
+      : prisma.job.groupBy({
+          by: ["status"],
+          where: { ownerId: scopedUserId },
+          _count: { id: true },
+        });
 
     const [jobStatusCounts, currentApps, timeInStage, prevAppsFromBatch] =
       compare && previousBounds

@@ -28,9 +28,10 @@ export default function UnauthorizedPage() {
         <h1
           style={{
             margin: 0,
-            fontFamily: "'Fraunces', serif",
+            fontFamily: "var(--font-heading)",
             fontSize: 24,
-            fontWeight: 800,
+            fontWeight: 500,
+            letterSpacing: "-0.03em",
             color: "var(--text-heading)",
           }}
         >

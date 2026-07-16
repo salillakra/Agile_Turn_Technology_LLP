@@ -21,9 +21,9 @@ export type StoredCandidateEmbedding = {
 };
 
 export type SyncCandidateEmbeddingOptions = {
-  /** Résumé parse `experience.summary` when available (preferred right after parse apply). */
+  /** resume parse `experience.summary` when available (preferred right after parse apply). */
   resumeSummary?: string | null;
-  /** Bypass semantic-text deduplication (e.g. after résumé file replacement). */
+  /** Bypass semantic-text deduplication (e.g. after resume file replacement). */
   force?: boolean;
 };
 
@@ -218,7 +218,7 @@ export function scheduleCandidateEmbeddingSync(
   enqueueEntityEmbeddingBestEffort("candidate", candidateId, "candidate-embedding-sync");
 }
 
-/** Clear cached embedding when résumé file changes (regenerated after parse apply). */
+/** Clear cached embedding when resume file changes (regenerated after parse apply). */
 export async function invalidateCandidateEmbedding(candidateId: string): Promise<void> {
   await prisma.candidate.update({
     where: { id: candidateId },

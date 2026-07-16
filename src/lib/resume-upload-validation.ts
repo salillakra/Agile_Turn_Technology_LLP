@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-/** Default max résumé upload size (5 MiB). Override with env `MAX_RESUME_BYTES`. */
+/** Default max resume upload size (5 MiB). Override with env `MAX_RESUME_BYTES`. */
 export const DEFAULT_MAX_RESUME_BYTES = 5 * 1024 * 1024;
 
 /** API error message when size limit is exceeded (paired with code `FILE_TOO_LARGE`, HTTP 400). */

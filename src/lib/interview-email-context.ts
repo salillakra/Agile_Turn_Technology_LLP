@@ -55,7 +55,7 @@ export async function loadInterviewEmailContext(
     if (!email) continue;
     interviewers.push({
       userId: row.user.id,
-      name: row.user.name,
+      name: row.user.name || "Interviewer",
       email,
     });
   }
@@ -69,7 +69,7 @@ export async function loadInterviewEmailContext(
     applicationId: interview.applicationId,
     jobId: interview.application.jobId,
     jobTitle: interview.application.job.title,
-    candidateName: interview.application.candidate.candidateName,
+    candidateName: interview.application.candidate.candidateName || "Candidate",
     candidateEmail: interview.application.candidate.email?.trim() || null,
     scheduledAt: interview.scheduledAt,
     durationMinutes: interview.durationMinutes,

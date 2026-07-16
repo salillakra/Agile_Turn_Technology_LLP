@@ -1,26 +1,20 @@
 import { NextResponse } from "next/server";
 import { requireApiAuth } from "@/src/lib/api-auth";
 import { apiError } from "@/src/lib/api-error-response";
-import { canManageRecruiterAssignments, isAdmin, isHiringManager } from "@/src/lib/rbac";
-import { canAccessJobByScope } from "@/src/lib/rbac-scope";
+import { canManageRecruiterAssignments } from "@/src/lib/rbac";
 import { prisma } from "@/src/lib/prisma";
 import { isValidCuid } from "@/src/lib/validate-id";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-/** GET /api/jobs/[id]/assignments — list assignments for a job. ADMIN + scoped HIRING_MANAGER. */
+/** GET /api/jobs/[id]/assignments — ADMIN-only audit list (no access impact). */
 export async function GET(_request: Request, context: RouteContext) {
   const auth = await requireApiAuth(canManageRecruiterAssignments);
   if (auth instanceof NextResponse) return auth;
-  const role = auth.session.user?.role;
-  const actorUserId = typeof auth.session.user?.id === "string" ? auth.session.user.id : undefined;
 
   const { id: jobId } = await context.params;
   if (!jobId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
   if (!isValidCuid(jobId)) return NextResponse.json({ error: "Malformed id format" }, { status: 400 });
-  if (!(await canAccessJobByScope(role, actorUserId, jobId))) {
-    return apiError("FORBIDDEN", "You do not have access to this job", 403);
-  }
 
   const job = await prisma.job.findUnique({ where: { id: jobId }, select: { id: true } });
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
@@ -33,31 +27,22 @@ export async function GET(_request: Request, context: RouteContext) {
       jobId: true,
       userId: true,
       assignedAt: true,
-      assignedBy: true,
+      assignedById: true,
       user: { select: { id: true, name: true, email: true, role: true } },
     },
   });
   return NextResponse.json({ data: assignments });
 }
 
-/**
- * POST /api/jobs/[id]/assignments — assign user to job.
- * - ADMIN: can assign HIRING_MANAGER only.
- * - HIRING_MANAGER: can assign RECRUITER only (on scoped jobs).
- */
+/** POST /api/jobs/[id]/assignments — ADMIN-only audit record (HM or RECRUITER). */
 export async function POST(request: Request, context: RouteContext) {
   const auth = await requireApiAuth(canManageRecruiterAssignments);
   if (auth instanceof NextResponse) return auth;
   const { session } = auth;
-  const role = session.user?.role;
-  const actorUserId = typeof session.user?.id === "string" ? session.user.id : undefined;
 
   const { id: jobId } = await context.params;
   if (!jobId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
   if (!isValidCuid(jobId)) return NextResponse.json({ error: "Malformed id format" }, { status: 400 });
-  if (!(await canAccessJobByScope(role, actorUserId, jobId))) {
-    return apiError("FORBIDDEN", "You do not have access to this job", 403);
-  }
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const userId = typeof body.userId === "string" ? body.userId.trim() : "";
@@ -73,30 +58,20 @@ export async function POST(request: Request, context: RouteContext) {
   if (user.role === "ADMIN") {
     return apiError("FORBIDDEN", "Cannot assign ADMIN users to jobs", 403);
   }
-  if (isAdmin(role) && user.role !== "HIRING_MANAGER") {
-    return apiError("FORBIDDEN", "Admin can assign HIRING_MANAGER only", 403);
-  }
-  if (isHiringManager(role) && user.role !== "RECRUITER") {
-    return apiError("FORBIDDEN", "Hiring Manager can assign RECRUITER only", 403);
-  }
-  if (!isAdmin(role) && user.role === "HIRING_MANAGER") {
-    return apiError("FORBIDDEN", "Only ADMIN can assign HIRING_MANAGER to jobs", 403);
+  if (user.role !== "HIRING_MANAGER" && user.role !== "RECRUITER") {
+    return apiError("FORBIDDEN", "Audit assignment supports HIRING_MANAGER or RECRUITER only", 403);
   }
 
   try {
-    const assignedBy = typeof session.user?.id === "string" ? session.user.id : null;
+    const assignedById = typeof session.user?.id === "string" ? session.user.id : null;
     const assignment = await prisma.jobAssignment.create({
-      data: {
-        jobId,
-        userId,
-        assignedBy,
-      },
+      data: { jobId, userId, assignedById },
       select: {
         id: true,
         jobId: true,
         userId: true,
         assignedAt: true,
-        assignedBy: true,
+        assignedById: true,
         user: { select: { id: true, name: true, email: true, role: true } },
       },
     });
@@ -109,4 +84,3 @@ export async function POST(request: Request, context: RouteContext) {
     throw error;
   }
 }
-

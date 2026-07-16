@@ -5,7 +5,7 @@ import {
   serializeActivityLogDetails,
 } from "@/src/lib/activity-log-details";
 
-/** Stored in `ActivityLog.action` for résumé parse pipeline events. */
+/** Stored in `ActivityLog.action` for resume parse pipeline events. */
 export const ACTIVITY_ACTION_RESUME_PARSE_STARTED = "RESUME_PARSE_STARTED" as const;
 export const ACTIVITY_ACTION_RESUME_PARSE_COMPLETED = "RESUME_PARSE_COMPLETED" as const;
 export const ACTIVITY_ACTION_RESUME_PARSE_FAILED = "RESUME_PARSE_FAILED" as const;
@@ -111,6 +111,11 @@ export async function completeResumeParseJobAndLog(
     candidateId: string;
     userId: string | null;
     resultJson: Prisma.InputJsonValue;
+    status?: "COMPLETED" | "PARTIAL";
+    strategyUsed?: "RULE_BASED" | "LLM" | "HYBRID";
+    ruleConfidence?: number | null;
+    llmConfidence?: number | null;
+    disagreementFlags?: string[];
   }
 ): Promise<void> {
   const existing = await db.resumeParseJob.findUnique({
@@ -120,14 +125,21 @@ export async function completeResumeParseJobAndLog(
   if (!existing || existing.candidateId !== params.candidateId) {
     throw new Error("ResumeParseJob not found or candidate mismatch");
   }
+  const terminalStatus = params.status ?? "COMPLETED";
   const updated = await db.resumeParseJob.update({
     where: { id: params.jobId },
     data: {
-      status: "COMPLETED",
+      status: terminalStatus,
       resultJson: params.resultJson,
       error: null,
       completedAt: new Date(),
       failedAt: null,
+      ...(params.strategyUsed !== undefined ? { strategyUsed: params.strategyUsed } : {}),
+      ...(params.ruleConfidence !== undefined ? { ruleConfidence: params.ruleConfidence } : {}),
+      ...(params.llmConfidence !== undefined ? { llmConfidence: params.llmConfidence } : {}),
+      ...(params.disagreementFlags !== undefined
+        ? { disagreementFlags: params.disagreementFlags }
+        : {}),
     },
     select: { id: true, fileHash: true },
   });

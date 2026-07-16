@@ -7,7 +7,10 @@ import type { ApplicationStage } from "@prisma/client";
 import {
   getApplicationsCreatedAtFilter,
   getPreviousApplicationsCreatedAtFilter,
-  parseDashboardRange,
+  parseDashboardRangeParams,
+  dashboardRangeCacheToken,
+  getDateFilterOptions,
+  isBoundedDashboardRange,
 } from "@/src/lib/dashboard-range";
 import { getReportsJobScope } from "@/src/lib/reports-job-filter";
 import {
@@ -43,23 +46,25 @@ export async function GET(request: Request) {
   const role = session.user?.role ?? "UNKNOWN";
   const userId = session.user?.id;
   const { searchParams } = new URL(request.url);
-  const rangeRaw = searchParams.get("range");
-  const range = parseDashboardRange(rangeRaw);
-  if (range == null) {
+  const parsedRange = parseDashboardRangeParams(searchParams);
+  if (parsedRange == null) {
     return apiError(
       "INVALID_RANGE",
-      "range must be one of: 7d, 30d, 90d, all",
+      "range must be one of: 7d, 30d, 90d, all, or custom with dateFrom",
       400
     );
   }
 
+  const rangeKey = dashboardRangeCacheToken(parsedRange);
+  const dateFilterOptions = getDateFilterOptions(parsedRange);
+
   const jobId = searchParams.get("jobId");
   const department = searchParams.get("department");
   const compare = parseCompareFlag(searchParams.get("compare"));
-  if (compare && range === "all") {
+  if (compare && !isBoundedDashboardRange(parsedRange)) {
     return apiError(
       "INVALID_COMPARE",
-      "compare=true requires a bounded range (7d, 30d, or 90d), not all",
+      "compare=true requires a bounded range, not all",
       400
     );
   }
@@ -67,7 +72,7 @@ export async function GET(request: Request) {
     endpoint: "source",
     role: String(role),
     userId,
-    range,
+    range: rangeKey,
     jobId,
     department,
     type: compare ? "compare" : "plain",
@@ -138,8 +143,10 @@ export async function GET(request: Request) {
       ? {}
       : { jobId: { in: jobScopeInfo.jobIds as string[] } };
 
-  const createdAtFilter = getApplicationsCreatedAtFilter(range);
-  const previousFilter = compare ? getPreviousApplicationsCreatedAtFilter(range) : null;
+  const createdAtFilter = getApplicationsCreatedAtFilter(parsedRange.range, dateFilterOptions);
+  const previousFilter = compare
+    ? getPreviousApplicationsCreatedAtFilter(parsedRange.range, dateFilterOptions)
+    : null;
   const BUCKETS: Array<"LinkedIn" | "Indeed" | "Referral" | "Website" | "Other"> = [
     "LinkedIn",
     "Indeed",
@@ -157,7 +164,7 @@ export async function GET(request: Request) {
     return "Other";
   };
 
-  async function computeForFilter(filter: { gte: Date } | { gte: Date; lt: Date } | undefined) {
+  async function computeForFilter(filter: { gte?: Date; lte?: Date; lt?: Date } | undefined) {
     const where = {
       withdrawnAt: null as null,
       ...(filter ? { createdAt: filter } : {}),

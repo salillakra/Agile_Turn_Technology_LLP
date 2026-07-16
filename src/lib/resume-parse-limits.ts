@@ -1,5 +1,5 @@
 /**
- * Shared résumé parse / apply field limits.
+ * Shared resume parse / apply field limits.
  * Keep ai-service `skill_extraction` / `resume_summary_builder` in sync where noted.
  */
 export const RESUME_PARSE_LIMITS = {

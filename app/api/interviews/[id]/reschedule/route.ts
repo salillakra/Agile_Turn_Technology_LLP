@@ -12,7 +12,6 @@ import {
 import { checkInterviewRescheduleQuota } from "@/src/lib/interview-scheduling-abuse";
 import { checkInterviewSchedulingRateLimit } from "@/src/lib/interview-scheduling-rate-limit";
 import {
-  resolveInterviewMeetingLinkForPatch,
   validateInterviewScheduleInput,
 } from "@/src/lib/interview-scheduling-validation";
 import { createNotification } from "@/src/lib/notification-service";
@@ -81,12 +80,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return apiError("NOT_FOUND", "Interview not found", 404);
   }
 
-  if (!(await canAccessJobByScope(role, actorUserId, interview.application.jobId))) {
-    return apiError("FORBIDDEN", "You do not have access to this interview", 403);
-  }
-
   if (!actorUserId) {
     return apiError("UNAUTHORIZED", "Missing user session", 401);
+  }
+
+  if (!(await canAccessJobByScope(role, actorUserId, interview.application.jobId))) {
+    return apiError("FORBIDDEN", "You do not have access to this interview", 403);
   }
 
   if (interview.status === "CANCELLED") {

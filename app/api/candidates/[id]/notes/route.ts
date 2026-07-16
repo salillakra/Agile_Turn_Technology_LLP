@@ -28,15 +28,15 @@ export async function GET(_request: Request, context: RouteContext) {
   const notes = await prisma.candidateNote.findMany({
     where: { candidateId },
     orderBy: { createdAt: "desc" },
-    include: { author: { select: authorSelect } },
+    include: { createdBy: { select: authorSelect } },
   });
 
   const data = notes.map((n) => ({
     id: n.id,
     note: n.note,
-    createdBy: n.createdBy,
+    createdBy: n.createdById,
     createdAt: n.createdAt,
-    author: n.author,
+    author: n.createdBy,
   }));
 
   return NextResponse.json(data);
@@ -72,17 +72,17 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const created = await prisma.candidateNote.create({
-    data: { candidateId, note, createdBy: userId },
-    include: { author: { select: authorSelect } },
+    data: { candidateId, note, createdById: userId },
+    include: { createdBy: { select: authorSelect } },
   });
 
   return NextResponse.json(
     {
       id: created.id,
       note: created.note,
-      createdBy: created.createdBy,
+      createdBy: created.createdById,
       createdAt: created.createdAt,
-      author: created.author,
+      author: created.createdBy,
     },
     { status: 201 }
   );

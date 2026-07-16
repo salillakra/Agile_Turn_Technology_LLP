@@ -142,20 +142,21 @@ export async function countUniqueActiveApplicantsForJob(jobId: string): Promise<
   return seen.size;
 }
 
-/** All DB candidate ids for the same person (union of email + name matches). */
+/** All DB candidate ids for the same person within one owner silo. */
 export async function resolveSiblingCandidateIds(candidateId: string): Promise<string[]> {
   const row = await prisma.candidate.findUnique({
     where: { id: candidateId },
-    select: { id: true, email: true, candidateName: true },
+    select: { id: true, email: true, candidateName: true, ownerId: true },
   });
   if (!row) return [candidateId];
 
   const ids = new Set<string>([row.id]);
+  const ownerScope = { ownerId: row.ownerId };
 
   const email = normalizeCandidateEmail(row.email);
   if (email) {
     const byEmail = await prisma.candidate.findMany({
-      where: { email },
+      where: { email, ...ownerScope },
       select: { id: true },
     });
     for (const s of byEmail) ids.add(s.id);
@@ -165,6 +166,7 @@ export async function resolveSiblingCandidateIds(candidateId: string): Promise<s
   if (name.length >= 2) {
     const byName = await prisma.candidate.findMany({
       where: {
+        ...ownerScope,
         candidateName: {
           equals: row.candidateName,
           mode: "insensitive",
@@ -179,7 +181,7 @@ export async function resolveSiblingCandidateIds(candidateId: string): Promise<s
 }
 
 /**
- * Which duplicate row to attach the application to (résumé/skills, or existing app on job).
+ * Which duplicate row to attach the application to (resume/skills, or existing app on job).
  */
 export async function resolveCanonicalCandidateIdForShortlist(
   candidateId: string,

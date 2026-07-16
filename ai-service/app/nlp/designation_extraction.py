@@ -1,5 +1,5 @@
 """
-Extract job titles / designations from résumé text.
+Extract job titles / designations from resume text.
 
 Uses experience job blocks (date ranges), role-line patterns, and title NLP regex.
 """

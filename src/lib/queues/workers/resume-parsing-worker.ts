@@ -13,7 +13,7 @@ async function handleResumeParsingJob(job: Job<ResumeParsingJobPayload>): Promis
   await processResumeParsingJob(job);
 }
 
-/** Listens to `ats-resume-parsing` and runs heuristic résumé extraction. */
+/** Listens to `ats-resume-parsing` and runs heuristic resume extraction. */
 export function createResumeParsingWorker(connection: QueueRedisConnection) {
   return createQueueWorker<ResumeParsingJobPayload>(
     RESUME_PARSING_QUEUE_NAME,

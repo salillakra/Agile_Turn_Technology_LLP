@@ -314,16 +314,16 @@ export async function searchCandidatesByRecruiterQuery(
 
   const visibleIds = visible.map((c) => c.id);
   if (visibleIds.length === 0) {
-    const empty: RecruiterSearchResultRow[] = [];
+    const results = await fallbackSearchCandidates({ query: normalizedQuery, options, limit });
     await setCachedRecruiterSearchResults({
       ...cacheParams,
-      results: empty,
+      results,
       successful: true,
     });
     return {
       ok: true,
-      mode: "hybrid",
-      results: empty,
+      mode: "fallback",
+      results,
       cache: { embedding: embedded.cache, results: "miss" },
     };
   }
@@ -336,16 +336,16 @@ export async function searchCandidatesByRecruiterQuery(
 
   const ranked = await rankCandidatesByQueryEmbedding(embedded.embedding, rankOptions);
   if (ranked.length === 0) {
-    const empty: RecruiterSearchResultRow[] = [];
+    const results = await fallbackSearchCandidates({ query: normalizedQuery, options, limit });
     await setCachedRecruiterSearchResults({
       ...cacheParams,
-      results: empty,
+      results,
       successful: true,
     });
     return {
       ok: true,
-      mode: "hybrid",
-      results: empty,
+      mode: "fallback",
+      results,
       cache: { embedding: embedded.cache, results: "miss" },
     };
   }

@@ -1,5 +1,6 @@
 import type { StructuredResumeParse } from "@/src/lib/structured-resume-parse";
 import { isStructuredResumeParse } from "@/src/lib/structured-resume-parse";
+import type { HybridParseMeta } from "@/src/lib/resume-parse/llm-parse-types";
 
 /**
  * Canonical shape for `ResumeParseJob.resultJson` after a successful parse.
@@ -13,23 +14,16 @@ export type ResumeParseExperience = {
 };
 
 /**
- * Parsed résumé payload stored in the database as JSON (`resultJson`).
- *
- * @example
- * ```json
- * {
- *   "name": "Jane Doe",
- *   "skills": ["TypeScript", "PostgreSQL"],
- *   "experience": { "years": 8, "summary": "Senior backend engineer; fintech." }
- * }
- * ```
+ * Parsed resume payload stored in the database as JSON (`resultJson`).
  */
 export type ResumeParseResult = {
   name: string;
   skills: string[];
   experience: ResumeParseExperience;
-  /** Full NLP structured parse when produced by ai-service (schema v8). */
+  /** Full NLP structured parse when produced by ai-service (schema v10). */
   structured?: StructuredResumeParse;
+  /** Hybrid parse metadata (rule + LLM sources, disagreement flags). */
+  hybrid?: HybridParseMeta;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

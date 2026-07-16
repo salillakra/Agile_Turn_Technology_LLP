@@ -1,7 +1,8 @@
 import type { EmailDeliveryStatus, Prisma } from "@prisma/client";
 import {
   getApplicationsCreatedAtFilter,
-  parseDashboardRange,
+  parseDashboardRangeParams,
+  getDateFilterOptions,
   type DashboardRange,
 } from "@/src/lib/dashboard-range";
 import type {
@@ -41,18 +42,18 @@ function toUtcDateKey(date: Date): string {
 export function parseEmailMonitoringFilter(
   searchParams: URLSearchParams
 ): EmailMonitoringFilter | null {
-  const range = parseDashboardRange(searchParams.get("range") ?? "30d");
-  if (!range) return null;
+  const parsedRange = parseDashboardRangeParams(searchParams);
+  if (!parsedRange) return null;
 
-  const dateFrom = parseDateParam(searchParams.get("dateFrom"));
-  const dateTo = parseDateParam(searchParams.get("dateTo"));
+  const dateFrom = parseDateParam(searchParams.get("dateFrom")) ?? parsedRange.dateFrom;
+  const dateTo = parseDateParam(searchParams.get("dateTo")) ?? parsedRange.dateTo;
 
   let from: Date | undefined = dateFrom;
   let to: Date | undefined = dateTo;
 
-  if (!from && range !== "all") {
-    const gte = getApplicationsCreatedAtFilter(range)?.gte;
-    from = gte;
+  if (!from && parsedRange.range !== "all") {
+    const filter = getApplicationsCreatedAtFilter(parsedRange.range, getDateFilterOptions(parsedRange));
+    from = filter?.gte;
   }
   if (!to) {
     to = new Date();
@@ -68,7 +69,7 @@ export function parseEmailMonitoringFilter(
     searchParams.get("type") ??
     "all") as EmailMonitoringTypeFilter;
 
-  return { range, from, to, status, emailType };
+  return { range: parsedRange.range, from, to, status, emailType };
 }
 
 function buildWhere(filter: EmailMonitoringFilter): Prisma.EmailLogWhereInput {

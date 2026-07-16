@@ -28,7 +28,7 @@ const EMBEDDING_ENTITY_TYPES: readonly EmbeddingEntityType[] = ["candidate", "jo
 export type EmbeddingJobPayload = {
   entityType: EmbeddingEntityType;
   entityId: string;
-  /** When true, worker re-embeds even if cached semantic text matches (post–résumé parse). */
+  /** When true, worker re-embeds even if cached semantic text matches (post–resume parse). */
   force?: boolean;
 };
 
@@ -40,7 +40,7 @@ export type EnqueueEmbeddingJobOptions = DelayedJobScheduleOptions & {
   jobId?: string;
   /** Default {@link JOB_PRIORITY_MEDIUM} (between urgent email and analytics). */
   priority?: number;
-  /** Passed to worker — re-embed when true (e.g. after résumé NLP parse). */
+  /** Passed to worker — re-embed when true (e.g. after resume NLP parse). */
   force?: boolean;
 };
 

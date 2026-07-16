@@ -119,7 +119,9 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireApiAuth(canCreateCandidate);
   if (auth instanceof NextResponse) return auth;
-  const actorUserId = auth.session.user?.id;
+  const role = auth.session.user?.role;
+  const actorUserId = typeof auth.session.user?.id === "string" ? auth.session.user.id : undefined;
+  const ownerId = actorUserId ?? "";
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const candidateName = typeof body.candidateName === "string" ? body.candidateName.trim() : "";
@@ -139,12 +141,7 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  if (body.contactNumber === undefined || body.contactNumber === null) {
-    return NextResponse.json(
-      { error: "contactNumber is required" },
-      { status: 400 }
-    );
-  }
+  // contactNumber is optional (Candidate.contactNumber is nullable in schema)
 
   const sourceRaw = body.candidateSource;
   const candidateSource: CandidateSource | undefined =
@@ -152,14 +149,25 @@ export async function POST(request: Request) {
       ? (sourceRaw as CandidateSource)
       : undefined;
 
-  const totalExperience =
+  // Round fractional experience values (e.g. 1.5 -> 2) — schema is Int? so
+  // we use Number.isFinite instead of Number.isInteger to avoid silently
+  // dropping valid decimals (1.5 years previously produced undefined).
+  const totalExperienceRaw =
     body.totalExperience != null ? Number(body.totalExperience) : undefined;
-  const relevantExperience =
+  const relevantExperienceRaw =
     body.relevantExperience != null ? Number(body.relevantExperience) : undefined;
+  const totalExperience =
+    typeof totalExperienceRaw === "number" && Number.isFinite(totalExperienceRaw)
+      ? Math.max(0, Math.round(totalExperienceRaw))
+      : undefined;
+  const relevantExperience =
+    typeof relevantExperienceRaw === "number" && Number.isFinite(relevantExperienceRaw)
+      ? Math.max(0, Math.round(relevantExperienceRaw))
+      : undefined;
 
   const normalizedEmail = email.toLowerCase();
   const existing = await prisma.candidate.findFirst({
-    where: { email: normalizedEmail },
+    where: { email: normalizedEmail, ownerId },
     orderBy: { updatedAt: "desc" },
   });
 
@@ -186,8 +194,10 @@ export async function POST(request: Request) {
       email: normalizedEmail,
       contactNumber: contactNumber === "" ? null : contactNumber,
       candidateSource,
-      totalExperience: Number.isInteger(totalExperience) ? totalExperience : undefined,
-      relevantExperience: Number.isInteger(relevantExperience) ? relevantExperience : undefined,
+      totalExperience,
+      relevantExperience,
+      ownerId,
+      createdById: ownerId,
     },
   });
 

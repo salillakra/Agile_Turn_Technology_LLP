@@ -1,0 +1,178 @@
+
+services:
+  # ── Infrastructure ───────────────────────────────────────────────────────────
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ats_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-atsuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-atspassword}
+      POSTGRES_DB: ${POSTGRES_DB:-atsdb}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-atsuser} -d ${POSTGRES_DB:-atsdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ats_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── AI Microservice ──────────────────────────────────────────────────────────
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: ats_ai_service
+    restart: unless-stopped
+    user: root
+    entrypoint: ["/usr/local/bin/docker-entrypoint.sh"]
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      LOG_LEVEL: info
+      EMBEDDING_MODEL_NAME: ${AI_EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      RESUME_FILES_BASE_PATH: /app/uploads/resumes
+      RESUME_NLP_ENABLED: ${AI_RESUME_PARSE_ENABLED:-true}
+      SPACY_MODEL_NAME: en_core_web_sm
+      HF_HOME: /var/cache/aiservice/huggingface
+      TRANSFORMERS_CACHE: /var/cache/aiservice/huggingface
+      SENTENCE_TRANSFORMERS_HOME: /var/cache/aiservice/sentence-transformers
+    ports:
+      - "${AI_SERVICE_PORT:-8000}:8000"
+    volumes:
+      - ./uploads:/app/uploads:ro
+      - ai_model_cache:/var/cache/aiservice
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Database migration (one-shot) ────────────────────────────────────────────
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: deps
+    container_name: ats_migrate
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-atsuser}:${POSTGRES_PASSWORD:-atspassword}@postgres:5432/${POSTGRES_DB:-atsdb}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ── Next.js Application ──────────────────────────────────────────────────────
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    container_name: ats_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-atsuser}:${POSTGRES_PASSWORD:-atspassword}@postgres:5432/${POSTGRES_DB:-atsdb}?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      AI_SERVICE_URL: http://ai-service:8000
+      QUEUE_MONITOR_AUTO_START: "false"
+      NODE_ENV: production
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      ai-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── BullMQ Worker ────────────────────────────────────────────────────────────
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    container_name: ats_worker
+    restart: unless-stopped
+    command: ["node", "--max-old-space-size=4096", "-e", "require('./workers/index.ts')"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-atsuser}:${POSTGRES_PASSWORD:-atspassword}@postgres:5432/${POSTGRES_DB:-atsdb}?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      AI_SERVICE_URL: http://ai-service:8000
+      NODE_ENV: production
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # ── Bull Board Queue Monitor ─────────────────────────────────────────────────
+
+  monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    container_name: ats_monitor
+    restart: unless-stopped
+    command: ["npx", "tsx", "monitor/server.ts"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-atsuser}:${POSTGRES_PASSWORD:-atspassword}@postgres:5432/${POSTGRES_DB:-atsdb}?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      QUEUE_MONITOR_PORT: "3030"
+      NODE_ENV: production
+    ports:
+      - "${MONITOR_PORT:-3030}:3030"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  ai_model_cache:

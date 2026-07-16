@@ -7,9 +7,11 @@ import {
   computeDashboardFunnelRates,
 } from "@/src/lib/metrics";
 
-export type ApplicationAppliedDateClause =
-  | { gte: Date }
-  | { gte: Date; lt: Date };
+export type ApplicationAppliedDateClause = {
+  gte?: Date;
+  lte?: Date;
+  lt?: Date;
+};
 
 export type DashboardSummaryApplicationKpis = {
   totalCandidates: number;

@@ -127,7 +127,14 @@ export function checkInterviewerAvailabilityWindow(params: {
   userEmail: string | null;
   timeZone: string | null;
 }): SchedulingAvailabilityConflict | null {
-  const tz = params.timeZone?.trim() || "UTC";
+  // If the interviewer has no timezone configured, we cannot reliably determine
+  // their local time. Defaulting to UTC produces false conflicts for non-UTC
+  // users (e.g. IST = UTC+5:30 scheduling at 10am IST appears as 4:30am UTC).
+  // Skip the window check instead — the overlap check still prevents double-booking.
+  if (!params.timeZone?.trim()) {
+    return null;
+  }
+  const tz = params.timeZone.trim();
   const window = getInterviewerWorkWindow();
   const local = getLocalDateTimeParts(params.scheduledAt, tz);
   if (!local) {

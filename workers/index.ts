@@ -1,10 +1,7 @@
 /**
  * Background worker process entry point.
  *
- * Run separately from Next.js (long-lived process):
- *   npx tsx workers/index.ts
- *
- * Registers BullMQ `Worker` instances from `src/lib/queues/workers/`.
+ * Started automatically by start-dev.sh (dev:stack).
  */
 
 import { getRedisTargetDescription, isRedisConfigured } from "@/src/lib/queues/redis";
@@ -13,19 +10,20 @@ import {
   assertValidBullMqQueueName,
   listBullMqQueueNames,
 } from "@/src/lib/queues/queue-names";
+import { logger } from "@/src/lib/logger";
 import { startWorkers } from "@/workers/registry";
 import { registerWorkerProcessShutdown } from "@/workers/shutdown";
 
+const workerLog = logger.child({ component: "workers" });
+
 async function main(): Promise<void> {
   if (!isRedisConfigured()) {
-    console.error(
-      "[workers] Redis is not configured. Set REDIS_HOST/REDIS_PORT or REDIS_URL before starting workers."
-    );
+    workerLog.error("Redis is not configured — set REDIS_HOST/REDIS_PORT or REDIS_URL");
     process.exit(1);
   }
 
   const target = getRedisTargetDescription();
-  console.info(`[workers] starting (redis=${target ?? "unknown"})`);
+  workerLog.info({ redis: target ?? "unknown" }, "starting background workers");
 
   for (const queueName of listBullMqQueueNames()) {
     assertValidBullMqQueueName(queueName);
@@ -35,18 +33,18 @@ async function main(): Promise<void> {
   registerWorkerProcessShutdown(shutdown);
 
   process.on("unhandledRejection", (reason) => {
-    console.error("[workers] unhandledRejection (process continues):", reason);
+    workerLog.error({ err: reason }, "unhandledRejection");
   });
 
   process.on("uncaughtException", (err) => {
-    console.error("[workers] uncaughtException (process continues):", err);
+    workerLog.error({ err }, "uncaughtException");
   });
 
   const uniqueQueues = [...new Set(Object.values(QUEUE_NAMES))];
-  console.info(`[workers] listening on queues: ${uniqueQueues.join(", ")}`);
+  workerLog.info({ queues: uniqueQueues }, "workers listening");
 }
 
 main().catch((e) => {
-  console.error("[workers] fatal error:", e);
+  workerLog.fatal({ err: e }, "worker process failed to start");
   process.exit(1);
 });

@@ -27,6 +27,7 @@ export async function activateCrmRequirement(
         location,
         description: requirement.description,
         status: "OPEN",
+        ownerId: actorUserId,
         createdBy: actorUserId,
         jobMeta: {
           crmRequirementId: requirement.id,

@@ -1,5 +1,5 @@
 """
-Extract plain text from PDF résumés for downstream NLP (spaCy / transformers).
+Extract plain text from PDF resumes for downstream NLP (spaCy / transformers).
 
 Uses PyMuPDF (fast, digital PDFs) with pdfplumber fallback (layout-heavy CVs).
 """
@@ -134,7 +134,7 @@ def extract_resume_text_result(
     min_usable_chars: int = _MIN_USABLE_CHARS,
 ) -> ResumeTextExtractionResult:
     """
-    Extract and clean text from a PDF résumé.
+    Extract and clean text from a PDF resume.
 
     Tries PyMuPDF first, then pdfplumber if the yield is low or PyMuPDF fails.
     Never raises for malformed PDFs — returns `ok=False` and empty/minimal text.

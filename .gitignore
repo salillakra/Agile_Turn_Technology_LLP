@@ -9,6 +9,7 @@ out/
 .env
 .env.local
 .env.*.local
+.azure-deploy.secrets
 
 # Prisma generated client (regenerate via `npm run prisma:generate`)
 /generated/prisma
@@ -35,3 +36,8 @@ ai-service/**/__pycache__/
 ai-service/**/*.py[cod]
 ai-service/.pytest_cache/
 ai-service/.mypy_cache/
+
+
+.agents
+.vscode
+skills-lock.json

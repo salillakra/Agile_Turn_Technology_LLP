@@ -1,5 +1,5 @@
 /**
- * Best-effort removal of common contact patterns from free-text (for parsed résumé summaries).
+ * Best-effort removal of common contact patterns from free-text (for parsed resume summaries).
  * Not a guarantee of anonymity — recruiters should still review before publishing.
  */
 export function scrubContactInfo(input: string): string {

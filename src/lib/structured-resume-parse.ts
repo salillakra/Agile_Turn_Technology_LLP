@@ -2,7 +2,7 @@ import { truncateSummaryWithFullStop } from "@/src/lib/text-terminal-punctuation
 import { RESUME_PARSE_LIMITS } from "@/src/lib/resume-parse-limits";
 
 /**
- * Canonical structured résumé parse — mirrors POST /parse-resume (ai-service schema v8).
+ * Canonical structured resume parse — mirrors POST /parse-resume (ai-service schema v8).
  *
  * Fixed field set; bump `schemaVersion` when adding or renaming keys.
  */
@@ -93,8 +93,8 @@ export function isStructuredResumeParse(value: unknown): value is StructuredResu
 
 export function isParseResumeApiResponse(value: unknown): value is ParseResumeApiResponse {
   if (!isStructuredResumeParse(value)) return false;
-  if (!isRecord(value)) return false;
-  return typeof value.rawText === "string";
+  const o = value as Record<string, unknown>;
+  return typeof o.rawText === "string";
 }
 
 /** Map ai-service structured parse → `ResumeParseJob.resultJson` (legacy + embedded structured). */

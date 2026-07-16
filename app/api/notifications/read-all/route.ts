@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { requireApiAuth } from "@/src/lib/api-auth";
 import { checkNotificationApiRateLimit } from "@/src/lib/rate-limit";
 import { prisma } from "@/src/lib/prisma";
-import { invalidateCacheByTag } from "@/src/lib/cache/cache-utils";
-import { notificationsUserTagKey } from "@/src/lib/cache/cache-keys";
+import { scheduleNotificationFeedUpdated } from "@/src/lib/notification-realtime";
 
 /** PATCH /api/notifications/read-all — mark all notifications for the authenticated user as read. */
 export async function PATCH() {
@@ -23,8 +22,7 @@ export async function PATCH() {
     data: { isRead: true },
   });
 
-  // Best-effort cache invalidation (unread count + pages).
-  await invalidateCacheByTag(notificationsUserTagKey(userId), 5_000);
+  scheduleNotificationFeedUpdated(userId);
 
   return NextResponse.json({ ok: true, updated: result.count });
 }

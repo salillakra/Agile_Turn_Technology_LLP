@@ -1,5 +1,5 @@
 """
-Extract education entries (degree, institution, graduation year) from résumé text.
+Extract education entries (degree, institution, graduation year) from resume text.
 
 Uses EDUCATION section parsing, degree/year regex, and optional spaCy ORG for schools.
 """

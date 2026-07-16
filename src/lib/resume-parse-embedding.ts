@@ -1,7 +1,7 @@
 import { enqueueEntityEmbedding } from "@/src/lib/enqueue-entity-embedding";
 
 /**
- * Queue semantic embedding regeneration after résumé NLP parse updates candidate profile.
+ * Queue semantic embedding regeneration after resume NLP parse updates candidate profile.
  */
 export async function enqueueCandidateEmbeddingAfterParse(
   candidateId: string
@@ -11,10 +11,11 @@ export async function enqueueCandidateEmbeddingAfterParse(
     force: true,
   });
   if (!result.ok) {
+    const errResult = result as { ok: false; message: string };
     console.warn(
       "[resume-parse-embedding] embedding enqueue skipped for %s: %s",
       candidateId,
-      result.message
+      errResult.message
     );
   }
 }

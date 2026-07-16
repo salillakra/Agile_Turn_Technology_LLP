@@ -3,7 +3,9 @@ import { prisma } from "@/src/lib/prisma";
 import { apiError } from "@/src/lib/api-error-response";
 import {
   getApplicationsCreatedAtFilter,
-  parseDashboardRange,
+  parseDashboardRangeParams,
+  dashboardRangeCacheToken,
+  getDateFilterOptions,
   toUtcMonthKey,
 } from "@/src/lib/dashboard-range";
 import {
@@ -26,6 +28,7 @@ import {
   dashboardRateLimitedResponse,
 } from "@/src/lib/dashboard-rate-limit";
 import { scheduleAnalyticsCacheRefresh } from "@/src/lib/enqueue-analytics-refresh";
+import { listScopedJobIds } from "@/src/lib/rbac-scope";
 import {
   DRILLDOWN_APPLICATIONS_API,
   DRILLDOWN_APPLICANTS_PAGE,
@@ -79,11 +82,14 @@ export async function GET(request: Request) {
     );
   }
 
-  const rangeRaw = new URL(request.url).searchParams.get("range");
-  const range = parseDashboardRange(rangeRaw);
-  if (range == null) {
+  const parsedRange = parseDashboardRangeParams(new URL(request.url).searchParams);
+  if (parsedRange == null) {
     return withDashboardTelemetry(
-      apiError("INVALID_RANGE", "range must be one of: 7d, 30d, 90d, all", 400),
+      apiError(
+        "INVALID_RANGE",
+        "range must be one of: 7d, 30d, 90d, all, or custom with dateFrom",
+        400
+      ),
       {
         endpoint: ENDPOINT,
         role,
@@ -95,7 +101,8 @@ export async function GET(request: Request) {
     );
   }
 
-  const cacheKey = dashboardChartsCacheLogicalKey({ role, userId, range });
+  const rangeKey = dashboardRangeCacheToken(parsedRange);
+  const cacheKey = dashboardChartsCacheLogicalKey({ role, userId, range: rangeKey });
   const { value: cached } = await getDashboardAnalyticsCache<Record<string, unknown>>(cacheKey);
   if (cached != null) {
     // SWR: serve cached immediately, refresh async.
@@ -121,23 +128,20 @@ export async function GET(request: Request) {
     role,
   });
 
-  const createdAt = getApplicationsCreatedAtFilter(range);
+  const createdAt = getApplicationsCreatedAtFilter(
+    parsedRange.range,
+    getDateFilterOptions(parsedRange)
+  );
 
   const dbStartedAt = Date.now();
   try {
-    // Non-admin roles are scoped to assigned jobs.
-    const isAdmin = role === "ADMIN";
+    const isAdminRole = role === "ADMIN";
     const scopedUserId = typeof userId === "string" ? userId.trim() : "";
-    const scopedJobs = isAdmin
+    const scopedJobIds = isAdminRole
       ? null
-      : await prisma.jobAssignment.findMany({
-          where: { userId: scopedUserId },
-          select: { jobId: true },
-          distinct: ["jobId"],
-        });
-    const scopedJobIds = isAdmin ? null : scopedJobs?.map((row) => row.jobId) ?? [];
+      : await listScopedJobIds(role, scopedUserId);
 
-    if (!isAdmin && scopedJobIds.length === 0) {
+    if (!isAdminRole && (!scopedJobIds || scopedJobIds.length === 0)) {
       const emptyPayload = {
         drillDown: {
           applicationsApiPath: DRILLDOWN_APPLICATIONS_API,
@@ -162,7 +166,7 @@ export async function GET(request: Request) {
     const applicationsWhere = {
       withdrawnAt: null as null,
       ...(createdAt ? { appliedDate: createdAt } : {}),
-      ...(!isAdmin ? { jobId: { in: scopedJobIds as string[] } } : {}),
+      ...(!isAdminRole ? { jobId: { in: scopedJobIds as string[] } } : {}),
     };
 
     const [stageGroups, appsByJob, appsByMonth, sourceRows] = await Promise.all([

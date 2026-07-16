@@ -93,8 +93,8 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   if (!job || job.candidateId !== candidateId) {
     return apiError("NOT_FOUND", "Parse job not found for this candidate", 404);
   }
-  if (job.status !== "COMPLETED") {
-    return apiError("INVALID_STATE", "Parse job must be completed before applying", 409);
+  if (job.status !== "COMPLETED" && job.status !== "PARTIAL") {
+    return apiError("INVALID_STATE", "Parse job must be completed or partial before applying", 409);
   }
 
   const years = Math.round(

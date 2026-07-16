@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiAuth } from "@/src/lib/api-auth";
 import { canViewCandidates } from "@/src/lib/rbac";
-import { isAdmin } from "@/src/lib/rbac";
+import { listScopedJobIds } from "@/src/lib/rbac-scope";
 import { prisma } from "@/src/lib/prisma";
 import type { ApplicationStage } from "@prisma/client";
 
@@ -60,15 +60,7 @@ export async function GET(request: Request) {
     )
   );
 
-  const allowedJobIds = isAdmin(role)
-    ? null
-    : (
-        await prisma.jobAssignment.findMany({
-          where: { userId },
-          select: { jobId: true },
-          distinct: ["jobId"],
-        })
-      ).map((r) => r.jobId);
+  const allowedJobIds = await listScopedJobIds(role, userId);
   if (jobId && allowedJobIds != null && !allowedJobIds.includes(jobId)) {
     return NextResponse.json(
       STAGES.reduce((acc, s) => ({ ...acc, [s]: [] }), {} as Record<ApplicationStage, unknown[]>)

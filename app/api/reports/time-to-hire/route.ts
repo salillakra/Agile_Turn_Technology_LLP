@@ -6,7 +6,9 @@ import { calculateAverageTimeToHire } from "@/src/lib/metrics";
 import type { Role } from "@prisma/client";
 import {
   getApplicationsCreatedAtFilter,
-  parseDashboardRange,
+  parseDashboardRangeParams,
+  dashboardRangeCacheToken,
+  getDateFilterOptions,
 } from "@/src/lib/dashboard-range";
 import { getReportsJobScope } from "@/src/lib/reports-job-filter";
 import {
@@ -33,15 +35,17 @@ export async function GET(request: Request) {
   const role = (session.user?.role ?? "UNKNOWN") as Role | string;
   const userId = session.user?.id;
   const { searchParams } = new URL(request.url);
-  const rangeRaw = searchParams.get("range");
-  const range = parseDashboardRange(rangeRaw);
-  if (range == null) {
+  const parsedRange = parseDashboardRangeParams(searchParams);
+  if (parsedRange == null) {
     return apiError(
       "INVALID_RANGE",
-      "range must be one of: 7d, 30d, 90d, all",
+      "range must be one of: 7d, 30d, 90d, all, or custom with dateFrom",
       400
     );
   }
+
+  const rangeKey = dashboardRangeCacheToken(parsedRange);
+  const dateFilterOptions = getDateFilterOptions(parsedRange);
 
   const jobId = searchParams.get("jobId");
   const department = searchParams.get("department");
@@ -49,7 +53,7 @@ export async function GET(request: Request) {
     endpoint: "time-to-hire",
     role: String(role),
     userId,
-    range,
+    range: rangeKey,
     jobId,
     department,
   });
@@ -102,7 +106,7 @@ export async function GET(request: Request) {
       ? {}
       : { jobId: { in: jobScopeInfo.jobIds as string[] } };
 
-  const createdAtFilter = getApplicationsCreatedAtFilter(range);
+  const createdAtFilter = getApplicationsCreatedAtFilter(parsedRange.range, dateFilterOptions);
 
   const MS_PER_DAY = 86_400_000;
 

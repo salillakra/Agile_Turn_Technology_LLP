@@ -1,5 +1,5 @@
 """
-Build a one-line structured résumé summary from extracted NLP entities.
+Build a one-line structured resume summary from extracted NLP entities.
 
 Template-driven (no LLM), e.g.:
 "Frontend engineer with 4 years experience in React, TypeScript and AWS."

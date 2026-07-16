@@ -20,6 +20,7 @@ import {
   buildStageChangeNotificationSentDetails,
   serializeActivityLogDetails,
 } from "@/src/lib/activity-log-details";
+import { scheduleNotificationFeedUpdated } from "@/src/lib/notification-realtime";
 
 /**
  * Optional: suppress duplicate `STAGE_CHANGED` rows for the same user + copy within this window (ms).
@@ -91,7 +92,7 @@ export async function createNotification(
   priority?: NotificationPriority | null,
   reference?: { type: NotificationReferenceType; id: string } | null
 ): Promise<Notification> {
-  return prisma.notification.create({
+  const row = await prisma.notification.create({
     data: {
       userId,
       type,
@@ -103,19 +104,8 @@ export async function createNotification(
         : {}),
     },
   });
-}
-
-const RECRUITER_ROLES = ["ADMIN", "RECRUITER"] as const;
-
-async function listRecruiterUserIds(excludeUserId?: string): Promise<string[]> {
-  const users = await prisma.user.findMany({
-    where: {
-      role: { in: [...RECRUITER_ROLES] },
-      ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
-    },
-    select: { id: true },
-  });
-  return users.map((u) => u.id);
+  scheduleNotificationFeedUpdated(userId);
+  return row;
 }
 
 async function listAdminUserIds(excludeUserId?: string): Promise<string[]> {
@@ -138,52 +128,32 @@ function uniqIds(...groups: Array<string[] | null | undefined>): string[] {
   return [...out];
 }
 
-/**
- * Recipients for job-scoped alerts (stage changes, offer sent, etc.):
- *
- * 1. **Job creator (recruiter)** — `Job.createdBy` → `User.id` of whoever created the requisition.
- * 2. **Assigned hiring managers** — rows in `JobAssignment` for this job whose `User.role` is
- *    `HIRING_MANAGER` (Prisma: `job.assignments`; there is no `assignedManagers` field on `Job`).
- *
- * De-duplicates when the creator is also assigned. Optionally omits `excludeUserId` (e.g. actor who
- * triggered the action) from the set.
- */
-async function listJobRecruiterAndAssignedHiringManagerUserIds(
+async function listJobOwnerAndAdminUserIds(
   jobId: string,
   excludeUserId?: string
 ): Promise<string[]> {
   const job = await prisma.job.findUnique({
     where: { id: jobId },
-    select: {
-      createdBy: true,
-      assignments: {
-        where: { user: { role: "HIRING_MANAGER" } },
-        select: { userId: true },
-      },
-    },
+    select: { ownerId: true },
   });
   if (!job) return [];
-  const ids = new Set<string>();
-  ids.add(job.createdBy);
-  for (const a of job.assignments) {
-    ids.add(a.userId);
-  }
-  if (excludeUserId) ids.delete(excludeUserId);
-  return [...ids];
-}
-
-async function listJobAssignmentUserIds(jobId: string, excludeUserId?: string): Promise<string[]> {
-  const rows = await prisma.jobAssignment.findMany({
-    where: { jobId },
-    select: { userId: true },
-  });
-  const unique = [...new Set(rows.map((r) => r.userId))];
-  return excludeUserId ? unique.filter((id) => id !== excludeUserId) : unique;
+  return uniqIds([job.ownerId], await listAdminUserIds(excludeUserId)).filter(
+    (id) => id !== excludeUserId
+  );
 }
 
 /**
- * New candidate in the system — notify all recruiters (ADMIN + RECRUITER), including the user who added them.
- * (Excluding the actor left solo recruiters with zero recipients and no in-app notification.)
+ * @deprecated Audit-only assignments do not affect notifications. Use {@link listJobOwnerAndAdminUserIds}.
+ */
+async function listJobRecruiterAndAssignedHiringManagerUserIds(
+  jobId: string,
+  excludeUserId?: string
+): Promise<string[]> {
+  return listJobOwnerAndAdminUserIds(jobId, excludeUserId);
+}
+
+/**
+ * New candidate — notify job owner (if known) and all admins. Falls back to admins only.
  */
 export async function notifyRecruitersCandidateAdded(input: {
   candidateId: string;
@@ -191,7 +161,14 @@ export async function notifyRecruitersCandidateAdded(input: {
   actorUserId?: string;
 }): Promise<void> {
   const { candidateId, candidateName } = input;
-  const ids = await listRecruiterUserIds();
+  const candidate = await prisma.candidate.findUnique({
+    where: { id: candidateId },
+    select: { ownerId: true },
+  });
+  const ids = uniqIds(
+    candidate ? [candidate.ownerId] : [],
+    await listAdminUserIds(input.actorUserId)
+  );
   if (ids.length === 0) return;
   await Promise.all(
     ids.map((userId) =>
@@ -208,7 +185,7 @@ export async function notifyRecruitersCandidateAdded(input: {
 }
 
 /**
- * New application — notify all recruiters (ADMIN + RECRUITER), including the user who created the application.
+ * New application — notify job owner and admins.
  */
 export async function notifyRecruitersApplicationCreated(input: {
   applicationId: string;
@@ -217,8 +194,8 @@ export async function notifyRecruitersApplicationCreated(input: {
   jobId: string;
   actorUserId?: string;
 }): Promise<void> {
-  const { applicationId, candidateName, jobTitle } = input;
-  const ids = await listRecruiterUserIds();
+  const { applicationId, candidateName, jobTitle, jobId } = input;
+  const ids = await listJobOwnerAndAdminUserIds(jobId, input.actorUserId);
   if (ids.length === 0) return;
   await Promise.all(
     ids.map((userId) =>
@@ -332,8 +309,7 @@ export async function notifyHiringManagersStageChanged(input: {
 }
 
 /**
- * Candidate reached INTERVIEW — notify users explicitly assigned to the job (interviewer / HM pool).
- * In this schema, assignments are `JobAssignment` rows; there is no separate interviewer table.
+ * Interview stage — notify job owner (not audit assignees).
  */
 export async function notifyAssignedInterviewersForInterviewStage(input: {
   applicationId: string;
@@ -342,7 +318,7 @@ export async function notifyAssignedInterviewersForInterviewStage(input: {
   candidateName: string;
   actorUserId?: string;
 }): Promise<void> {
-  const ids = await listJobAssignmentUserIds(input.jobId, input.actorUserId);
+  const ids = await listJobOwnerAndAdminUserIds(input.jobId, input.actorUserId);
   if (ids.length === 0) return;
 
   await Promise.all(

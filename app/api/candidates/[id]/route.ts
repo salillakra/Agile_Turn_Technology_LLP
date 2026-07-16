@@ -4,6 +4,8 @@ import { apiError } from "@/src/lib/api-error-response";
 import { canDeleteCandidate, canEditCandidate, canViewCandidates } from "@/src/lib/rbac";
 import { buildCandidateVisibilityWhere } from "@/src/lib/rbac-scope";
 import { prisma } from "@/src/lib/prisma";
+import type { CandidateSource } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   candidateDetailInclude,
   formatCandidateDetail,
@@ -14,6 +16,16 @@ import { invalidateCandidateScoringCaches } from "@/src/lib/ai/candidate-scoring
 import { invalidateCandidateRecommendedCandidatesCaches } from "@/src/lib/job-recommended-candidates-cache";
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+const CANDIDATE_SOURCES: CandidateSource[] = [
+  "LINKEDIN",
+  "INDEED",
+  "REFERRAL",
+  "COMPANY_WEBSITE",
+  "GLASSDOOR",
+  "HEADHUNTER",
+  "OTHER",
+];
 
 /** GET /api/candidates/[id] — full candidate profile with skills, notes, applications. */
 export async function GET(_request: Request, context: RouteContext) {
@@ -69,6 +81,9 @@ export async function PUT(request: Request, context: RouteContext) {
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const data: {
     candidateName?: string;
+    email?: string;
+    contactNumber?: string | null;
+    candidateSource?: CandidateSource;
     totalExperience?: number | null;
     currentDesignation?: string | null;
     currentCompany?: string | null;
@@ -80,6 +95,26 @@ export async function PUT(request: Request, context: RouteContext) {
     const v = typeof body.candidateName === "string" ? body.candidateName.trim() : "";
     if (!v) return NextResponse.json({ error: "candidateName cannot be empty" }, { status: 400 });
     data.candidateName = v;
+  }
+  if (body.email !== undefined) {
+    const v = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    if (!v) return NextResponse.json({ error: "email cannot be empty" }, { status: 400 });
+    data.email = v;
+  }
+  if (body.contactNumber !== undefined) {
+    const v =
+      body.contactNumber == null ? null : String(body.contactNumber).trim() || null;
+    data.contactNumber = v;
+  }
+  if (body.candidateSource !== undefined) {
+    const sourceRaw = body.candidateSource;
+    if (
+      typeof sourceRaw !== "string" ||
+      !CANDIDATE_SOURCES.includes(sourceRaw as CandidateSource)
+    ) {
+      return NextResponse.json({ error: "Invalid candidateSource" }, { status: 400 });
+    }
+    data.candidateSource = sourceRaw as CandidateSource;
   }
   if (body.experience !== undefined || body.totalExperience !== undefined) {
     const v = body.totalExperience !== undefined ? body.totalExperience : body.experience;
@@ -112,10 +147,25 @@ export async function PUT(request: Request, context: RouteContext) {
         : null;
   }
 
-  const updated = await prisma.candidate.update({
-    where: { id },
-    data,
-  });
+  if (Object.keys(data).length === 0) {
+    return NextResponse.json(existing);
+  }
+
+  let updated;
+  try {
+    updated = await prisma.candidate.update({
+      where: { id },
+      data,
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return NextResponse.json(
+        { error: "Another candidate already uses this email" },
+        { status: 409 }
+      );
+    }
+    throw e;
+  }
 
   void invalidateCandidateRecommendedCandidatesCaches(updated.id);
   void invalidateCandidateScoringCaches(updated.id);

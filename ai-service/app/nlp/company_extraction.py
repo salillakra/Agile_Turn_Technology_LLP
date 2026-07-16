@@ -1,5 +1,5 @@
 """
-Extract previous employer names from résumé text using spaCy NER (ORG).
+Extract previous employer names from resume text using spaCy NER (ORG).
 
 Combines ORG entities in the experience section, role-line parsing, and job-duration hints.
 """

@@ -25,7 +25,7 @@ export function getResumeStorageFileNameFromResumeUrl(resumeUrl: string): string
 }
 
 /**
- * Extracts plain text from a résumé buffer (PDF, DOCX, or legacy DOC).
+ * Extracts plain text from a resume buffer (PDF, DOCX, or legacy DOC).
  */
 export async function extractPlainTextFromResumeBuffer(
   buffer: Buffer,

@@ -18,6 +18,11 @@ export type ApplicationCreatedDetails = {
   jobId: string;
 };
 
+export type ApplicationJobChangedDetails = {
+  fromJobId: string;
+  toJobId: string;
+};
+
 export type ApplicationDeletedDetails = {
   reason?: string;
 };
@@ -32,7 +37,7 @@ export type ResumeParseFailedDetails = ResumeParseJobActivityDetails & {
   error: string;
 };
 
-/** Recruiter confirmed applying parsed résumé fields to `Candidate`. */
+/** Recruiter confirmed applying parsed resume fields to `Candidate`. */
 export type ResumeParseAppliedToCandidateDetails = ResumeParseJobActivityDetails;
 
 /** Details for `ActivityLog.action === "NOTIFICATION_SENT"` when pipeline stage-change in-app alerts are persisted. */
@@ -401,6 +406,13 @@ export function buildNotesUpdatedDetails(summary: string): NotesUpdatedDetails {
 
 export function buildApplicationCreatedDetails(jobId: string): ApplicationCreatedDetails {
   return { jobId };
+}
+
+export function buildApplicationJobChangedDetails(
+  fromJobId: string,
+  toJobId: string
+): ApplicationJobChangedDetails {
+  return { fromJobId, toJobId };
 }
 
 export function buildApplicationDeletedDetails(reason?: string | null): ApplicationDeletedDetails {

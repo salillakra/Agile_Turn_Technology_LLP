@@ -108,13 +108,13 @@ export async function enqueueResumeParseForCandidate(params: {
       return {
         ok: false,
         code: "INVALID_RESUME_REFERENCE",
-        message: "Résumé URL is not a supported local storage reference.",
+        message: "resume URL is not a supported local storage reference.",
       };
     }
     return {
       ok: false,
       code: "RESUME_FILE_MISSING",
-      message: "Résumé file is missing from storage; re-upload the résumé.",
+      message: "resume file is missing from storage; re-upload the resume.",
     };
   }
 
@@ -222,9 +222,49 @@ export async function enqueueResumeParseForCandidate(params: {
         ok: false,
         code: "QUEUE_UNAVAILABLE",
         message:
-          "Résumé parse job was created but the queue is unavailable. Configure Redis and run `npm run worker`.",
+          "resume parse job was created but the queue is unavailable. Configure Redis and run `npm run worker`.",
       };
     }
     throw e;
   }
+}
+
+function llmRetryDelayMs(retryCount: number): number {
+  const base = parseInt(process.env.AI_RESUME_LLM_RETRY_DELAY_MS ?? "300000", 10);
+  const ms = Number.isFinite(base) && base > 0 ? base : 300_000;
+  return ms * Math.max(1, retryCount);
+}
+
+/**
+ * Schedules a delayed BullMQ job to retry LLM enrichment for a PARTIAL parse job.
+ */
+export async function enqueueResumeLlmRetryJob(params: {
+  candidateId: string;
+  resumeUrl: string;
+  parseJobId: string;
+  retryCount: number;
+}): Promise<void> {
+  if (!isRedisConfigured()) return;
+
+  const delayMs = llmRetryDelayMs(params.retryCount);
+  await enqueueResumeParsingJob(
+    {
+      candidateId: params.candidateId,
+      resumeUrl: params.resumeUrl,
+      parseJobId: params.parseJobId,
+      llmRetryOnly: true,
+    },
+    {
+      jobId: sanitizeBullmqJobIdForRetry(params),
+      delay: delayMs,
+    }
+  );
+}
+
+function sanitizeBullmqJobIdForRetry(params: {
+  candidateId: string;
+  parseJobId: string;
+  retryCount: number;
+}): string {
+  return `resume-parse-llm-retry:${params.candidateId}:${params.parseJobId.slice(0, 12)}:${params.retryCount}`;
 }
