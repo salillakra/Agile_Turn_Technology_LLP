@@ -8,10 +8,12 @@ import {
   recruiterSearchEmbedKey,
   recruiterSearchResultsKey,
 } from "@/src/lib/cache/cache-keys";
+import { ATS_CACHE_ROOT, ATS_CACHE_VERSION } from "@/src/lib/cache/redis-cache";
 import {
   cacheDelete,
   cacheExists,
   getCache,
+  invalidatePattern,
   readPositiveIntEnv,
   setCache,
 } from "@/src/lib/cache/cache-utils";
@@ -221,6 +223,16 @@ export async function invalidateRecruiterSearchResultsCache(
   });
 
   await cacheDelete(key);
+}
+
+/**
+ * Drop all recruiter search result caches (call after candidate embed / profile updates).
+ * Keys are hashed, so invalidation is by domain prefix scan.
+ */
+export async function invalidateAllRecruiterSearchResultsCaches(): Promise<void> {
+  await invalidatePattern(`${ATS_CACHE_ROOT}:${ATS_CACHE_VERSION}:search:results:*`, {
+    maxKeys: 2_000,
+  });
 }
 
 export function getRecruiterSearchCacheTtlMs(): number {

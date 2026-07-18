@@ -13,6 +13,7 @@ import {
 import { stringField } from "@/src/lib/email/templates/layout";
 import { buildRenderedEmail } from "@/src/lib/email/templates/render-helpers";
 import type { RenderedEmail } from "@/src/lib/email/templates/types";
+import { applicationApplicantsUrl } from "@/src/lib/application-deep-link";
 
 type PanelNoticeKind = "scheduled" | "rescheduled" | "cancelled";
 
@@ -57,7 +58,7 @@ export function renderInterviewPanelNoticeEmail(
   const meetingLink = resolveMeetingLink(data);
   const applicationId = stringField(data, "applicationId");
   const appUrl = applicationId
-    ? `${brand.appUrl}/applications/${applicationId}`
+    ? applicationApplicantsUrl(brand.appUrl, applicationId)
     : brand.appUrl;
 
   const timeDisplay =

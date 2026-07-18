@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -179,12 +180,20 @@ export default function ApplyFlow({ job }) {
             . Our team will review your resume and get back to you.
           </p>
           {applyResult?.id ? (
-            <p
-              className="m-0 mt-4 text-[11px] text-[var(--text-muted)]"
-              style={T.mono}
-            >
-              Reference: {applyResult.id}
-            </p>
+            <div className="mt-4 space-y-3">
+              <p
+                className="m-0 text-[11px] text-[var(--text-muted)]"
+                style={T.mono}
+              >
+                Reference: {applyResult.id}
+              </p>
+              <a
+                href={`/applications/${encodeURIComponent(String(applyResult.id))}`}
+                className={cn(buttonVariants({ variant: "default" }), "inline-flex")}
+              >
+                View application status
+              </a>
+            </div>
           ) : null}
           <Button className="mt-6" variant="outline" onClick={resetForm}>
             Submit another application

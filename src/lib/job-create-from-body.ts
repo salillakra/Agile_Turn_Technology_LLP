@@ -3,6 +3,7 @@ import type { Job, JobStatus } from "@prisma/client";
 import { enqueueJobEmbeddingAfterJobChange } from "@/src/lib/job-embedding-enqueue";
 import { validateJobCreatePayload } from "@/src/lib/job-validation";
 import { prisma } from "@/src/lib/prisma";
+import { normalizeSkills } from "@/src/lib/skill-normalizer";
 
 const DEFAULT_PIPELINE_STAGES = [
   "APPLIED",
@@ -85,8 +86,8 @@ export async function createJobFromBody(
   const roleSummary = typeof body.roleSummary === "string" ? body.roleSummary.trim() : "";
   const keyResponsibilities =
     typeof body.keyResponsibilities === "string" ? body.keyResponsibilities.trim() : "";
-  const requiredSkills = arrayOfStrings(body.requiredSkills);
-  const preferredSkills = arrayOfStrings(body.preferredSkills);
+  const requiredSkills = normalizeSkills(arrayOfStrings(body.requiredSkills));
+  const preferredSkills = normalizeSkills(arrayOfStrings(body.preferredSkills));
   const experienceRequired =
     typeof body.experienceRequired === "string" ? body.experienceRequired.trim() : "";
   const pipelineStages = arrayOfStrings(body.pipelineStages);

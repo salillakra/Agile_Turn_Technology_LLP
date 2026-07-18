@@ -18,6 +18,7 @@ import {
 } from "@/src/lib/email/templates/interview-schedule-fields";
 import { buildRenderedEmail } from "@/src/lib/email/templates/render-helpers";
 import type { RenderedEmail } from "@/src/lib/email/templates/types";
+import { applicationApplicantsUrl } from "@/src/lib/application-deep-link";
 
 export { formatInterviewWhen, renderInterviewScheduledEmail };
 
@@ -98,7 +99,7 @@ export function renderInterviewNotificationEmail(
   const jobTitle = stringField(data, "jobTitle") || "a role";
   const applicationId = stringField(data, "applicationId");
   const appUrl = applicationId
-    ? `${brand.appUrl}/applications/${applicationId}`
+    ? applicationApplicantsUrl(brand.appUrl, applicationId)
     : brand.appUrl;
 
   const bodyHtml =

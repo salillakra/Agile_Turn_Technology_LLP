@@ -12,6 +12,7 @@ import { enqueueEntityEmbeddingBestEffort } from "@/src/lib/enqueue-entity-embed
 import { isPgvectorAvailable, toPgvectorLiteral } from "@/src/lib/pgvector-utils";
 import { prisma } from "@/src/lib/prisma";
 import { invalidateCandidateScoringCaches } from "@/src/lib/ai/candidate-scoring-cache";
+import { invalidateAllRecruiterSearchResultsCaches } from "@/src/lib/ai/recruiter-search-cache";
 import { invalidateCandidateRecommendedCandidatesCaches } from "@/src/lib/job-recommended-candidates-cache";
 
 export type StoredCandidateEmbedding = {
@@ -205,6 +206,7 @@ export async function syncCandidateEmbeddingFromRow(
 
   void invalidateCandidateRecommendedCandidatesCaches(candidate.id);
   void invalidateCandidateScoringCaches(candidate.id);
+  void invalidateAllRecruiterSearchResultsCaches().catch(() => {});
 }
 
 /**

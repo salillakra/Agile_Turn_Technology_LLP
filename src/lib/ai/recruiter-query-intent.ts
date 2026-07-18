@@ -1,5 +1,5 @@
 import { normalizeLocation } from "@/src/lib/recommendation-engine";
-import { normalizeSkill } from "@/src/lib/skill-normalizer";
+import { normalizeKnownSkill, normalizeSkill } from "@/src/lib/skill-normalizer";
 
 function tokenizeQuery(query: string): string[] {
   const clean = query
@@ -39,13 +39,45 @@ export function extractQuerySkillTokens(query: string): string[] {
 }
 
 export type RecruiterQueryIntent = {
-  /** Canonical skill tokens implied by the query (e.g. react, aws). */
+  /** Canonical skill tokens implied by the query (e.g. react, aws). Soft re-rank. */
   requiredSkillTokens: string[];
+  /**
+   * Known-alias skills only — used as SQL hard filters (must have all).
+   * Caps at 5 to avoid over-constraining long queries.
+   */
+  mustHaveSkillTokens: string[];
   /** Minimum years of experience if detected; otherwise null. */
   minimumExperienceYears: number | null;
   /** Location hint from query (e.g. "bangalore", "remote"); null if none. */
   locationHint: string | null;
 };
+
+const MAX_MUST_HAVE_SKILLS = 5;
+
+/** Extract only alias-mapped skills for hard filters. */
+export function extractMustHaveSkillTokens(query: string): string[] {
+  const tokens = tokenizeQuery(query);
+  if (tokens.length === 0) return [];
+
+  const candidates: string[] = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    candidates.push(tokens[i]!);
+    if (i + 1 < tokens.length) {
+      candidates.push(`${tokens[i]} ${tokens[i + 1]}`);
+    }
+  }
+
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of candidates) {
+    const canonical = normalizeKnownSkill(raw);
+    if (!canonical || seen.has(canonical)) continue;
+    seen.add(canonical);
+    result.push(canonical);
+    if (result.length >= MAX_MUST_HAVE_SKILLS) break;
+  }
+  return result;
+}
 
 const EXPERIENCE_PATTERNS = [
   /(\d+)\s*\+\s*(?:years?|yrs?)\b/i,
@@ -90,8 +122,10 @@ function extractLocationHint(query: string): string | null {
 /** Parse recruiter NL query into structured signals for hybrid ranking. */
 export function parseRecruiterQueryIntent(query: string): RecruiterQueryIntent {
   const q = query.trim();
+  const mustHaveSkillTokens = extractMustHaveSkillTokens(q);
   return {
     requiredSkillTokens: extractQuerySkillTokens(q),
+    mustHaveSkillTokens,
     minimumExperienceYears: extractMinimumExperienceYears(q),
     locationHint: extractLocationHint(q),
   };

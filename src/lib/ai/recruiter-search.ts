@@ -9,12 +9,9 @@ import {
 import { computeRecruiterHybridScore } from "@/src/lib/ai/recruiter-hybrid-ranking";
 import { buildRecruiterSearchRecommendationReason } from "@/src/lib/ai/recruiter-search-explainability";
 import { parseRecruiterQueryIntent } from "@/src/lib/ai/recruiter-query-intent";
+import { retrieveCandidatesHybridRrf } from "@/src/lib/ai/hybrid-candidate-retrieval";
 import { buildCandidateVisibilityWhere } from "@/src/lib/rbac-scope";
 import { prisma } from "@/src/lib/prisma";
-import {
-  rankCandidatesByQueryEmbedding,
-  type RankByPgvectorCosineSimilarityOptions,
-} from "@/src/lib/pgvector-similarity";
 import { normalizeSkills } from "@/src/lib/skill-normalizer";
 import type { RecommendationCandidateInput } from "@/src/lib/recommendation-engine";
 
@@ -54,7 +51,9 @@ export type RecruiterSemanticSearchOptions = {
   limit?: number;
   /** Minimum cosine similarity in [0, 1] for pgvector retrieval. */
   minCosineSimilarity?: number;
-  /** Cap candidate pool for RBAC-scoped ID filter (default 5000). */
+  /**
+   * @deprecated Owner scope is applied in SQL; retained for API compatibility.
+   */
   maxVisiblePool?: number;
 };
 
@@ -145,10 +144,20 @@ async function fallbackSearchCandidates(params: {
   const intent = parseRecruiterQueryIntent(normalizedQuery);
   const requiredTokens = intent.requiredSkillTokens;
   const locationHint = intent.locationHint?.trim() || null;
+  const hardSkills = intent.mustHaveSkillTokens;
 
   const candidates = await prisma.candidate.findMany({
     where: {
       ...buildCandidateVisibilityWhere(params.options.role, params.options.userId),
+      ...(hardSkills.length > 0
+        ? { normalizedSkills: { hasEvery: hardSkills } }
+        : {}),
+      ...(intent.minimumExperienceYears != null
+        ? { totalExperience: { gte: intent.minimumExperienceYears } }
+        : {}),
+      ...(locationHint
+        ? { preferredWorkLocation: { contains: locationHint, mode: "insensitive" } }
+        : {}),
       OR: [
         requiredTokens.length > 0 ? { normalizedSkills: { hasSome: requiredTokens } } : undefined,
         requiredTokens.length > 0
@@ -235,9 +244,8 @@ async function fallbackSearchCandidates(params: {
 }
 
 /**
- * Recruiter NL query → embed → pgvector retrieval → hybrid re-rank → top matches.
- *
- * Hybrid: {@link HYBRID_RECOMMENDATION_WEIGHTS} — semantic, skill overlap, experience, location.
+ * Recruiter NL query → embed → owner-scoped hybrid recall (vector + FTS + RRF)
+ * → hard filters → weighted re-rank → top matches.
  */
 export async function searchCandidatesByRecruiterQuery(
   query: string,
@@ -296,45 +304,27 @@ export async function searchCandidatesByRecruiterQuery(
     };
   }
 
-  const semanticLimit = Math.min(100, limit * SEMANTIC_RETRIEVAL_MULTIPLIER);
-  const maxVisiblePool = Math.min(50_000, Math.max(1, Math.trunc(options.maxVisiblePool ?? 5000)));
+  const retrievalLimit = Math.min(100, limit * SEMANTIC_RETRIEVAL_MULTIPLIER);
   const queryIntent = parseRecruiterQueryIntent(normalizedQuery);
 
-  const visible = await prisma.candidate.findMany({
-    where: {
-      ...buildCandidateVisibilityWhere(options.role, options.userId),
-      // Use JSON embedding presence for compatibility when Prisma client types
-      // are out of sync with `embeddingVector` (pgvector) field generation.
-      embedding: { not: null },
-    },
-    select: { id: true },
-    take: maxVisiblePool,
-    orderBy: { createdAt: "desc" },
-  });
-
-  const visibleIds = visible.map((c) => c.id);
-  if (visibleIds.length === 0) {
-    const results = await fallbackSearchCandidates({ query: normalizedQuery, options, limit });
-    await setCachedRecruiterSearchResults({
-      ...cacheParams,
-      results,
-      successful: true,
+  let ranked: Awaited<ReturnType<typeof retrieveCandidatesHybridRrf>> = [];
+  try {
+    ranked = await retrieveCandidatesHybridRrf(embedded.embedding, {
+      role: options.role,
+      userId: options.userId,
+      intent: queryIntent,
+      ftsQuery: normalizedQuery,
+      limit: retrievalLimit,
+      channelLimit: Math.min(200, Math.max(retrievalLimit, 80)),
+      minCosineSimilarity: options.minCosineSimilarity,
     });
-    return {
-      ok: true,
-      mode: "fallback",
-      results,
-      cache: { embedding: embedded.cache, results: "miss" },
-    };
+  } catch (e) {
+    console.warn(
+      "[recruiter-search] hybrid retrieval failed, using fallback:",
+      e instanceof Error ? e.message : e
+    );
   }
 
-  const rankOptions: RankByPgvectorCosineSimilarityOptions = {
-    limit: semanticLimit,
-    minCosineSimilarity: options.minCosineSimilarity,
-    entityIds: visibleIds,
-  };
-
-  const ranked = await rankCandidatesByQueryEmbedding(embedded.embedding, rankOptions);
   if (ranked.length === 0) {
     const results = await fallbackSearchCandidates({ query: normalizedQuery, options, limit });
     await setCachedRecruiterSearchResults({

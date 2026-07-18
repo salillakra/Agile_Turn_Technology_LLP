@@ -35,7 +35,22 @@ const SKILL_ALIASES: Readonly<Record<string, string>> = {
   // Languages & runtimes
   python: "python",
   java: "java",
+  "java se": "java",
+  javase: "java",
+  "core java": "java",
+  "java ee": "java",
+  javaee: "java",
   kotlin: "kotlin",
+  "spring boot": "springboot",
+  springboot: "springboot",
+  spring: "spring",
+  hibernate: "hibernate",
+  pyspark: "pyspark",
+  "py spark": "pyspark",
+  spark: "spark",
+  kafka: "kafka",
+  rabbitmq: "rabbitmq",
+
   golang: "go",
   go: "go",
   rust: "rust",
@@ -133,6 +148,21 @@ export function normalizeSkill(raw: string): string {
   }
 
   return defaultCanonical(trimmed);
+}
+
+/**
+ * Alias-only normalize — returns null when the token is not a known skill.
+ * Used for hard must-have filters so NL stopwords ("years", "engineer") are not required.
+ */
+export function normalizeKnownSkill(raw: string): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  for (const key of toLookupKeys(trimmed)) {
+    const canonical = SKILL_ALIASES[key];
+    if (canonical) return canonical;
+  }
+  return null;
 }
 
 /**

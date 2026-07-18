@@ -9,8 +9,10 @@ import {
   addJobAssignment,
   removeJobAssignment,
   importJobsFromCsv,
+  parseJobDescriptionFile,
   type Job,
   type JobImportResult,
+  type JobParseResult,
 } from "@/lib/api/jobs";
 
 export const jobKeys = {
@@ -107,4 +109,10 @@ export function useImportJobs() {
   });
 }
 
-export type { JobImportResult };
+export function useParseJobDescription() {
+  return useMutation({
+    mutationFn: (file: File) => parseJobDescriptionFile(file),
+  });
+}
+
+export type { JobImportResult, JobParseResult };

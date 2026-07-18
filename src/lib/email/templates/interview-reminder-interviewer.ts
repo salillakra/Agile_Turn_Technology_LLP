@@ -13,6 +13,7 @@ import {
 import { stringField } from "@/src/lib/email/templates/layout";
 import { buildRenderedEmail } from "@/src/lib/email/templates/render-helpers";
 import type { RenderedEmail } from "@/src/lib/email/templates/types";
+import { applicationApplicantsUrl } from "@/src/lib/application-deep-link";
 
 function resolveReminderLeadHours(data: Record<string, unknown>): 24 | 1 {
   const raw = data.reminderLeadHours;
@@ -42,7 +43,7 @@ export function renderInterviewReminderInterviewerEmail(
   const meetingLink = resolveMeetingLink(data);
   const applicationId = stringField(data, "applicationId");
   const appUrl = applicationId
-    ? `${brand.appUrl}/applications/${applicationId}`
+    ? applicationApplicantsUrl(brand.appUrl, applicationId)
     : brand.appUrl;
 
   const timeDisplay =

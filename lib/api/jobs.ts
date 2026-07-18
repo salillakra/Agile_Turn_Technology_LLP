@@ -114,3 +114,37 @@ export async function importJobsFromCsv(file: File): Promise<JobImportResult> {
   });
   return data;
 }
+
+export interface JobParseDraftBody {
+  title: string;
+  department: string;
+  location: string;
+  employmentType: string;
+  roleSummary: string;
+  keyResponsibilities: string;
+  requiredSkills: string[];
+  preferredSkills: string[];
+  experienceRequired: string;
+  minimumExperienceYears: number | null;
+  education: string | null;
+  description: string | null;
+  numberOfOpenings: number;
+  status: "OPEN";
+}
+
+export interface JobParseResult {
+  confidence: number;
+  textChars: number;
+  missingFields: string[];
+  body: JobParseDraftBody;
+}
+
+/** POST /api/jobs/parse — DOCX/PDF JD → structured draft for the New Position form. */
+export async function parseJobDescriptionFile(file: File): Promise<JobParseResult> {
+  const fd = new FormData();
+  fd.set("file", file);
+  const { data } = await apiClient.post<JobParseResult>("/jobs/parse", fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}

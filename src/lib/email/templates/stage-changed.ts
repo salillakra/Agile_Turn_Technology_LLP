@@ -9,6 +9,7 @@ import {
 import { stringField } from "@/src/lib/email/templates/layout";
 import { buildRenderedEmail } from "@/src/lib/email/templates/render-helpers";
 import type { RenderedEmail } from "@/src/lib/email/templates/types";
+import { applicationApplicantsUrl } from "@/src/lib/application-deep-link";
 
 /**
  * Pipeline stage update — internal stakeholders (template key: `stage_changed` / `stage_update`).
@@ -24,11 +25,10 @@ export function renderStageChangedEmail(
     stringField(data, "fromStage") || stringField(data, "oldStage") || "—";
   const toStage =
     stringField(data, "toStage") || stringField(data, "newStage") || "—";
+  const applicationId = stringField(data, "applicationId");
   const appUrl =
     stringField(data, "appUrl") ||
-    (stringField(data, "applicationId")
-      ? `${brand.appUrl}/applications/${stringField(data, "applicationId")}`
-      : "");
+    (applicationId ? applicationApplicantsUrl(brand.appUrl, applicationId) : "");
 
   const bodyHtml =
     emailParagraph(

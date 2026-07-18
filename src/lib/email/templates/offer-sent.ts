@@ -1,6 +1,7 @@
 import { renderBaseEmail } from "@/src/lib/email/templates/base-template";
 import { getEmailBrand } from "@/src/lib/email/templates/brand";
 import {
+  emailButton,
   emailDetailTable,
   emailHeading,
   emailOrderedList,
@@ -14,6 +15,7 @@ import {
 import { stringField } from "@/src/lib/email/templates/layout";
 import { buildRenderedEmail } from "@/src/lib/email/templates/render-helpers";
 import type { RenderedEmail } from "@/src/lib/email/templates/types";
+import { applicationStatusUrl } from "@/src/lib/application-deep-link";
 
 /**
  * Offer sent — candidate notification (`offer_sent`).
@@ -36,6 +38,10 @@ export function renderOfferSentEmail(
     stringField(data, "compensation") || stringField(data, "salary");
   const recruiterContact =
     stringField(data, "recruiterContact") || stringField(data, "contactEmail");
+  const applicationId = stringField(data, "applicationId");
+  const statusUrl = applicationId
+    ? applicationStatusUrl(brand.appUrl, applicationId)
+    : "";
 
   const bodyHtml =
     emailParagraph(`Hello ${candidateName},`) +
@@ -52,6 +58,9 @@ export function renderOfferSentEmail(
     emailParagraph(offerSummary) +
     emailHeading("Next steps", 2) +
     emailOrderedList(nextSteps) +
+    (statusUrl
+      ? emailButton({ href: statusUrl, label: "View application status", brand })
+      : "") +
     (recruiterContact
       ? emailParagraph(`Questions? Contact ${recruiterContact}.`)
       : emailParagraph("Your recruiting team will follow up with the formal offer letter.")) +
@@ -73,6 +82,7 @@ export function renderOfferSentEmail(
     startDate ? `Proposed start: ${startDate}` : "",
     `Offer summary:\n${offerSummary}`,
     `Next steps:\n${nextSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`,
+    statusUrl ? `View application status: ${statusUrl}` : "",
     recruiterContact
       ? `Questions? Contact ${recruiterContact}.`
       : "Your recruiting team will follow up with the formal offer letter.",

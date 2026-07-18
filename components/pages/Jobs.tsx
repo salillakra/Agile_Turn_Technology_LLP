@@ -19,11 +19,11 @@ import { validateNewJobForm } from "@/src/lib/job-create-form-validation";
 import {
   useCreateJob, useUpdateJob, useDeleteJob,
   useJobAssignments, useUsers, useAddAssignment, useRemoveAssignment,
-  useImportJobs,
+  useImportJobs, useParseJobDescription,
   type JobImportResult,
 } from "@/hooks/queries/useJobs";
 import { downloadJobCsvTemplate, JOB_CSV_MAX_ROWS } from "@/src/lib/job-csv-import";
-import type { Job } from "@/lib/api/jobs";
+import type { Job, JobParseDraftBody } from "@/lib/api/jobs";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -91,6 +91,26 @@ function jobToForm(job: Job): FormState {
   };
 }
 
+/** Merge JD parse draft into New Position defaults (blank JD fields keep form defaults). */
+function parseBodyToForm(body: JobParseDraftBody): FormState {
+  return {
+    ...DEFAULT_FORM,
+    title: body.title || DEFAULT_FORM.title,
+    dept: body.department || DEFAULT_FORM.dept,
+    loc: body.location || DEFAULT_FORM.loc,
+    employmentType: body.employmentType || DEFAULT_FORM.employmentType,
+    openings: body.numberOfOpenings || 1,
+    roleSummary: body.roleSummary || "",
+    keyResponsibilities: body.keyResponsibilities || "",
+    requiredSkills: Array.isArray(body.requiredSkills) ? body.requiredSkills.join(", ") : "",
+    preferredSkills: Array.isArray(body.preferredSkills) ? body.preferredSkills.join(", ") : "",
+    experienceRequired: body.experienceRequired || "",
+    education: body.education || "",
+    minimumExperienceYears:
+      body.minimumExperienceYears != null ? String(body.minimumExperienceYears) : "",
+  };
+}
+
 export default function Jobs({ jobs, applicants = [], refreshJobs }: JobProps) {
   const { data: session } = useSession();
   const role = session?.user?.role;
@@ -117,11 +137,16 @@ export default function Jobs({ jobs, applicants = [], refreshJobs }: JobProps) {
   const [importResult, setImportResult] = useState<JobImportResult | null>(null);
   const [importError, setImportError] = useState("");
 
+  const [jdModalOpen, setJdModalOpen] = useState(false);
+  const [jdFile, setJdFile] = useState<File | null>(null);
+  const [jdError, setJdError] = useState("");
+
   // TanStack Query mutations
   const createJob = useCreateJob();
   const updateJob = useUpdateJob();
   const deleteJob = useDeleteJob();
   const importJobs = useImportJobs();
+  const parseJd = useParseJobDescription();
 
   // Assignment queries (enabled only when modal open)
   const assignmentsQuery = useJobAssignments(assignJob?.id ?? "", !!assignJob && assignModalOpen);
@@ -281,6 +306,45 @@ export default function Jobs({ jobs, applicants = [], refreshJobs }: JobProps) {
     }
   };
 
+  const openJdModal = () => {
+    setJdModalOpen(true);
+    setJdFile(null);
+    setJdError("");
+  };
+
+  const handleJdPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setJdFile(file);
+    setJdError("");
+  };
+
+  const handleParseJd = async () => {
+    if (!jdFile) {
+      setJdError("Choose a PDF or DOCX file first.");
+      return;
+    }
+    setJdError("");
+    try {
+      const result = await parseJd.mutateAsync(jdFile);
+      setJdModalOpen(false);
+      setEditJobData(null);
+      setSaveError("");
+      setForm(parseBodyToForm(result.body));
+      setModalOpen(true);
+      if (result.missingFields.length > 0) {
+        toast.message("JD parsed — review fields before saving.", {
+          description: `Fill or confirm: ${result.missingFields.join(", ")}`,
+        });
+      } else {
+        toast.success("JD parsed into the new position form.");
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "JD parse failed";
+      setJdError(msg);
+      toast.error(msg);
+    }
+  };
+
   const filteredJobs = jobs.filter(
     (j) => j.title.toLowerCase().includes(q.toLowerCase()) ||
       j.department?.toLowerCase().includes(q.toLowerCase())
@@ -298,6 +362,10 @@ export default function Jobs({ jobs, applicants = [], refreshJobs }: JobProps) {
         </div>
         {allowCreateJob && (
           <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={openJdModal} className="gap-2 h-9 text-sm">
+              <FileArrowUp data-icon="inline-start" />
+              Import JD
+            </Button>
             <Button variant="outline" onClick={openImportModal} className="gap-2 h-9 text-sm">
               <FileArrowUp data-icon="inline-start" />
               Import CSV
@@ -631,6 +699,65 @@ export default function Jobs({ jobs, applicants = [], refreshJobs }: JobProps) {
 
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setAssignModalOpen(false)} className="w-full">Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* JD Import Dialog */}
+      <Dialog open={jdModalOpen} onOpenChange={setJdModalOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base">Import job description</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Upload a PDF or DOCX job description. We extract text, parse fields with AI, and open
+              the New Position form so you can review before saving.
+            </p>
+
+            <div className="space-y-2">
+              <Label htmlFor="jobs-jd-file">JD file</Label>
+              <Input
+                id="jobs-jd-file"
+                type="file"
+                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="cursor-pointer file:cursor-pointer"
+                disabled={parseJd.isPending}
+                onChange={handleJdPick}
+              />
+              {jdFile ? (
+                <p className="text-xs text-muted-foreground">
+                  Selected: {jdFile.name} ({Math.round(jdFile.size / 1024)} KB)
+                </p>
+              ) : null}
+            </div>
+
+            {jdError ? (
+              <Alert variant="destructive">
+                <AlertDescription className="text-xs">{jdError}</AlertDescription>
+              </Alert>
+            ) : null}
+          </div>
+
+          <DialogFooter className="mt-2 border-t pt-4">
+            <Button variant="outline" size="sm" onClick={() => setJdModalOpen(false)}>
+              Close
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => void handleParseJd()}
+              disabled={!jdFile || parseJd.isPending}
+            >
+              {parseJd.isPending ? (
+                <>
+                  <SpinnerGap className="size-3.5 mr-1 animate-spin" />
+                  Parsing…
+                </>
+              ) : (
+                "Parse & fill form"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

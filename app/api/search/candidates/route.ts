@@ -28,6 +28,11 @@ export type SearchCandidatesResponseRow = {
 
 export type SearchCandidatesResponse = {
   searchId: string;
+  intent?: {
+    mustHaveSkills: string[];
+    minimumExperienceYears: number | null;
+    locationHint: string | null;
+  };
   results: SearchCandidatesResponseRow[];
 };
 
@@ -36,7 +41,7 @@ const DEFAULT_LIMIT = 25;
 /**
  * POST /api/search/candidates
  *
- * Natural-language recruiter query → embed → pgvector retrieval → hybrid re-rank → top candidates.
+ * Natural-language recruiter query → embed → owner-scoped vector+FTS RRF → hard filters → re-rank.
  */
 export async function POST(request: Request) {
   const auth = await requireApiAuth(canViewCandidates);
@@ -118,8 +123,13 @@ export async function POST(request: Request) {
     userId,
   });
 
-  const response: SearchCandidatesResponse = {
+  const response = {
     searchId,
+    intent: {
+      mustHaveSkills: intent.mustHaveSkillTokens,
+      minimumExperienceYears: intent.minimumExperienceYears,
+      locationHint: intent.locationHint,
+    },
     results: mappedResults.map((row) => ({
       candidateId: row.candidateId,
       candidateName: row.candidateName,
