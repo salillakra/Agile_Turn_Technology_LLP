@@ -1,0 +1,53 @@
+#!/bin/bash
+# GCE startup: write ATS env for Coolify, install Coolify (Docker + UI).
+set -euo pipefail
+exec > >(tee /var/log/ats-startup.log) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y --no-install-recommends curl ca-certificates openssl
+
+mkdir -p /opt/ats
+cat > /opt/ats/ats.env <<'ENVEOF'
+# Paste these into Coolify → Application → Environment Variables
+NODE_ENV=production
+PORT=3000
+HOSTNAME=0.0.0.0
+DATABASE_URL=${database_url}
+NEXTAUTH_SECRET=${nextauth_secret}
+NEXTAUTH_URL=${nextauth_url}
+EMAIL_APP_URL=${nextauth_url}
+AI_SERVICE_URL=http://127.0.0.1:8000
+RESUME_FILES_BASE_PATH=/app/uploads/resumes
+START_WORKER=true
+EMBEDDED_REDIS=true
+EMAIL_SEND_ENABLED=${email_enabled}
+SMTP_HOST=${smtp_host}
+SMTP_PORT=${smtp_port}
+SMTP_SECURE=true
+SMTP_USER=${smtp_user}
+SMTP_PASSWORD=${smtp_password}
+SMTP_FROM=${smtp_from}
+GEMINI_API_KEY=${gemini_api_key}
+ENVEOF
+chmod 600 /opt/ats/ats.env
+
+cat > /opt/ats/README.txt <<EOF
+ATS host ready for Coolify.
+
+1) Open Coolify UI: ${coolify_url}
+2) Create admin on first visit.
+3) Deploy this repo (Dockerfile target: render) as a Docker Compose / Dockerfile app.
+4) Copy env from /opt/ats/ats.env into the Coolify app environment.
+5) On Cloud SQL (once): CREATE EXTENSION IF NOT EXISTS vector;
+6) Map public port 3000 (or put Coolify proxy on 80/443 with your domain).
+
+SSH: gcloud compute ssh ats-app --zone=ZONE
+Logs:  tail -f /var/log/ats-startup.log
+EOF
+
+echo "[ats] Installing Coolify (this takes several minutes)..."
+curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
+
+echo "[ats] Coolify install finished. UI: ${coolify_url}"

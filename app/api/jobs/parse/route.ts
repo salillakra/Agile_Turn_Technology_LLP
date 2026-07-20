@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     buffer,
   });
 
-  if (!result.ok) {
+  if (result.ok === false) {
     const status =
       result.code === "INVALID_FILE_TYPE" ||
       result.code === "EMPTY_TEXT" ||

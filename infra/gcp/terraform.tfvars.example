@@ -1,0 +1,12 @@
+project_id  = "agile-turn"
+region      = "asia-south1"
+zone        = "asia-south1-a"
+name_prefix = "ats"
+
+machine_type = "e2-standard-2"
+disk_size_gb = 80
+db_tier      = "db-custom-1-3840"
+
+# filled by apply script — do not commit
+db_password     = "REPLACE"
+nextauth_secret = "REPLACE"

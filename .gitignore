@@ -11,6 +11,13 @@ out/
 .env.*.local
 .azure-deploy.secrets
 
+# Terraform (GCP infra)
+infra/gcp/.terraform/
+infra/gcp/*.tfstate
+infra/gcp/*.tfstate.*
+infra/gcp/.terraform.lock.hcl
+infra/gcp/terraform.tfvars
+
 # Prisma generated client (regenerate via `npm run prisma:generate`)
 /generated/prisma
 

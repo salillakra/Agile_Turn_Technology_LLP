@@ -253,7 +253,7 @@ export async function parseJobDescriptionFromBuffer(params: {
     mimeType: params.mimeType,
     buffer: params.buffer,
   });
-  if (!validated.ok) {
+  if (validated.ok === false) {
     return { ok: false, error: validated.message, code: validated.code };
   }
 
@@ -261,7 +261,7 @@ export async function parseJobDescriptionFromBuffer(params: {
     params.buffer,
     validated.ext as AllowedResumeExt
   );
-  if (!extracted.ok) {
+  if (extracted.ok === false) {
     return { ok: false, error: `Text extraction failed: ${extracted.error}`, code: "EXTRACT_FAILED" };
   }
 
@@ -271,7 +271,7 @@ export async function parseJobDescriptionFromBuffer(params: {
   }
 
   const llm = await parseJobTextWithGemini(cleaned);
-  if (!llm.ok) {
+  if (llm.ok === false) {
     return { ok: false, error: llm.error, code: "LLM_FAILED" };
   }
 
