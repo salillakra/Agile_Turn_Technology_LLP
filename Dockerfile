@@ -8,7 +8,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY prisma/schema.prisma ./prisma/schema.prisma
 
-RUN npm ci --prefer-offline
+# Coolify (and others) may inject NODE_ENV=production as a build-arg; that
+# would omit @tailwindcss/postcss from npm ci and break `next build`.
+RUN npm ci --prefer-offline --include=dev
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2: builder — compile Next.js production build
