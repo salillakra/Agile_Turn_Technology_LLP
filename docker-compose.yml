@@ -4,14 +4,11 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: ats_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-atsuser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-atspassword}
       POSTGRES_DB: ${POSTGRES_DB:-atsdb}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,11 +19,8 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: ats_redis
     restart: unless-stopped
     command: redis-server --appendonly yes
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -41,7 +35,6 @@ services:
     build:
       context: ./ai-service
       dockerfile: Dockerfile
-    container_name: ats_ai_service
     restart: unless-stopped
     user: root
     entrypoint: ["/usr/local/bin/docker-entrypoint.sh"]
@@ -57,8 +50,6 @@ services:
       HF_HOME: /var/cache/aiservice/huggingface
       TRANSFORMERS_CACHE: /var/cache/aiservice/huggingface
       SENTENCE_TRANSFORMERS_HOME: /var/cache/aiservice/sentence-transformers
-    ports:
-      - "${AI_SERVICE_PORT:-8000}:8000"
     volumes:
       - ./uploads:/app/uploads:ro
       - ai_model_cache:/var/cache/aiservice
@@ -76,7 +67,6 @@ services:
       context: .
       dockerfile: Dockerfile
       target: deps
-    container_name: ats_migrate
     command: ["npx", "prisma", "migrate", "deploy"]
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-atsuser}:${POSTGRES_PASSWORD:-atspassword}@postgres:5432/${POSTGRES_DB:-atsdb}?sslmode=disable
@@ -92,7 +82,6 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runner
-    container_name: ats_app
     restart: unless-stopped
     env_file:
       - .env
@@ -102,8 +91,9 @@ services:
       AI_SERVICE_URL: http://ai-service:8000
       QUEUE_MONITOR_AUTO_START: "false"
       NODE_ENV: production
-    ports:
-      - "${APP_PORT:-3000}:3000"
+    # Coolify proxy routes here; no host bind (avoids "port is already allocated")
+    expose:
+      - "3000"
     volumes:
       - ./uploads:/app/uploads
     depends_on:
@@ -129,7 +119,6 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runner
-    container_name: ats_worker
     restart: unless-stopped
     command: ["node", "--max-old-space-size=4096", "-e", "require('./workers/index.ts')"]
     env_file:
@@ -156,7 +145,6 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runner
-    container_name: ats_monitor
     restart: unless-stopped
     command: ["npx", "tsx", "monitor/server.ts"]
     env_file:
@@ -166,8 +154,8 @@ services:
       REDIS_URL: redis://redis:6379
       QUEUE_MONITOR_PORT: "3030"
       NODE_ENV: production
-    ports:
-      - "${MONITOR_PORT:-3030}:3030"
+    expose:
+      - "3030"
     depends_on:
       redis:
         condition: service_healthy
