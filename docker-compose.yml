@@ -60,21 +60,6 @@ services:
       retries: 5
       start_period: 60s
 
-  # ── Database migration (one-shot) ────────────────────────────────────────────
-
-  migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: migrate
-    command: ["npx", "prisma", "migrate", "deploy"]
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-atsuser}:${POSTGRES_PASSWORD:-atspassword}@postgres:5432/${POSTGRES_DB:-atsdb}?sslmode=disable
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
-
   # ── Next.js Application ──────────────────────────────────────────────────────
 
   app:
@@ -101,8 +86,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
       ai-service:
         condition: service_healthy
     healthcheck:
@@ -110,7 +93,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s
 
   # ── BullMQ Worker ────────────────────────────────────────────────────────────
 
@@ -120,7 +103,8 @@ services:
       dockerfile: Dockerfile
       target: runner
     restart: unless-stopped
-    command: ["node", "--max-old-space-size=4096", "./node_modules/.bin/tsx", "workers/index.ts"]
+    # Skip migrate entrypoint — app already applies schema on boot
+    entrypoint: ["node", "--max-old-space-size=4096", "./node_modules/.bin/tsx", "workers/index.ts"]
     env_file:
       - .env
     environment:
@@ -135,8 +119,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
+      app:
+        condition: service_healthy
 
   # ── Bull Board Queue Monitor ─────────────────────────────────────────────────
 
@@ -146,7 +130,7 @@ services:
       dockerfile: Dockerfile
       target: runner
     restart: unless-stopped
-    command: ["npx", "tsx", "monitor/server.ts"]
+    entrypoint: ["npx", "tsx", "monitor/server.ts"]
     env_file:
       - .env
     environment:
@@ -158,6 +142,8 @@ services:
       - "3030"
     depends_on:
       redis:
+        condition: service_healthy
+      app:
         condition: service_healthy
 
 volumes:

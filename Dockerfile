@@ -70,8 +70,9 @@ COPY --from=builder /app/monitor       ./monitor
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/package.json  ./package.json
 
-# Upload directory
-RUN mkdir -p uploads/resumes && chown -R nextjs:nodejs uploads
+COPY docker/app-entrypoint.sh /usr/local/bin/app-entrypoint.sh
+RUN chmod +x /usr/local/bin/app-entrypoint.sh && \
+    mkdir -p uploads/resumes && chown -R nextjs:nodejs uploads
 
 USER nextjs
 
@@ -79,6 +80,7 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+ENTRYPOINT ["/usr/local/bin/app-entrypoint.sh"]
 CMD ["node", "server.js"]
 
 # ─────────────────────────────────────────────────────────────────────────────
