@@ -7,27 +7,27 @@ output "coolify_url" {
 }
 
 output "app_url_hint" {
-  value = var.domain != "" ? trimsuffix(var.domain, "/") : "http://${google_compute_address.app_ip.address}:3000 (after you deploy ATS in Coolify)"
-}
-
-output "sql_private_ip" {
-  value = google_sql_database_instance.pg.private_ip_address
-}
-
-output "artifact_registry" {
-  value = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.docker.repository_id}"
+  value = var.domain != "" ? trimsuffix(var.domain, "/") : "http://${google_compute_address.app_ip.address} (Coolify proxy → app:3000)"
 }
 
 output "ssh" {
   value = "gcloud compute ssh ${google_compute_instance.app.name} --zone ${var.zone} --project ${var.project_id}"
 }
 
+output "postgres_password" {
+  value     = random_password.postgres.result
+  sensitive = true
+}
+
 output "next_steps" {
   value = <<-EOT
     1. Open Coolify: http://${google_compute_address.app_ip.address}:8000
     2. Create admin account
-    3. On the VM, env file is at /opt/ats/ats.env — paste into Coolify app env
-    4. Deploy Dockerfile target "render" from this repo
-    5. CREATE EXTENSION IF NOT EXISTS vector; on Cloud SQL
+    3. Env file on VM: /opt/ats/ats.env — paste into Coolify app env
+       (terraform output -raw postgres_password if you need the DB password)
+    4. Deploy docker-compose.yml from this repo
+    5. Domain → service "app", port 3000
+    6. CREATE EXTENSION IF NOT EXISTS vector; on compose postgres
+    7. Coolify build concurrency = 1
   EOT
 }

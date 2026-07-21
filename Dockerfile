@@ -10,7 +10,17 @@ COPY prisma/schema.prisma ./prisma/schema.prisma
 
 # Coolify (and others) may inject NODE_ENV=production as a build-arg; that
 # would omit @tailwindcss/postcss from npm ci and break `next build`.
-RUN npm ci --prefer-offline --include=dev
+# Retry once on flaky registry resets (ECONNRESET) common in CI/Coolify builds.
+RUN npm ci --prefer-offline --include=dev || npm ci --include=dev
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1b: migrate — deps + migrations + prisma.config (Prisma 7)
+# deps alone only has schema.prisma; migrate deploy needs migrations + config.
+# ─────────────────────────────────────────────────────────────────────────────
+FROM deps AS migrate
+COPY prisma ./prisma
+COPY prisma.config.ts ./
+# DATABASE_URL is supplied at runtime by docker-compose / Coolify
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 2: builder — compile Next.js production build
@@ -52,8 +62,12 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static  ./.next/static
 COPY --from=builder /app/node_modules  ./node_modules
 COPY --from=builder /app/prisma        ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+COPY --from=builder /app/generated     ./generated
+COPY --from=builder /app/src           ./src
 COPY --from=builder /app/workers       ./workers
 COPY --from=builder /app/monitor       ./monitor
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/package.json  ./package.json
 
 # Upload directory

@@ -1,5 +1,5 @@
 #!/bin/bash
-# GCE startup: write ATS env for Coolify, install Coolify (Docker + UI).
+# GCE startup: compose-oriented ATS env, host tuning for Docker builds, Coolify.
 set -euo pipefail
 exec > >(tee /var/log/ats-startup.log) 2>&1
 
@@ -8,20 +8,40 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends curl ca-certificates openssl
 
+# ── Swap (8G) — build safety net; swappiness kept low ─────────────────────────
+if ! swapon --show | grep -q '/swapfile'; then
+  if [[ ! -f /swapfile ]]; then
+    fallocate -l 8G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=8192
+    chmod 600 /swapfile
+    mkswap /swapfile
+  fi
+  swapon /swapfile
+fi
+grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+sysctl -w vm.swappiness=10
+grep -q '^vm.swappiness=' /etc/sysctl.conf \
+  && sed -i 's/^vm.swappiness=.*/vm.swappiness=10/' /etc/sysctl.conf \
+  || echo 'vm.swappiness=10' >> /etc/sysctl.conf
+
 mkdir -p /opt/ats
 cat > /opt/ats/ats.env <<'ENVEOF'
-# Paste these into Coolify → Application → Environment Variables
+# Paste into Coolify → Application → Environment Variables
+# Match POSTGRES_* with docker-compose postgres service
 NODE_ENV=production
 PORT=3000
 HOSTNAME=0.0.0.0
+POSTGRES_USER=atsuser
+POSTGRES_PASSWORD=${postgres_password}
+POSTGRES_DB=atsdb
 DATABASE_URL=${database_url}
+REDIS_URL=redis://redis:6379
+AI_SERVICE_URL=http://ai-service:8000
 NEXTAUTH_SECRET=${nextauth_secret}
 NEXTAUTH_URL=${nextauth_url}
 EMAIL_APP_URL=${nextauth_url}
-AI_SERVICE_URL=http://127.0.0.1:8000
 RESUME_FILES_BASE_PATH=/app/uploads/resumes
-START_WORKER=true
-EMBEDDED_REDIS=true
+START_WORKER=false
+QUEUE_MONITOR_AUTO_START=false
 EMAIL_SEND_ENABLED=${email_enabled}
 SMTP_HOST=${smtp_host}
 SMTP_PORT=${smtp_port}
@@ -34,14 +54,16 @@ ENVEOF
 chmod 600 /opt/ats/ats.env
 
 cat > /opt/ats/README.txt <<EOF
-ATS host ready for Coolify.
+ATS Coolify host (all-in-one VM).
 
 1) Open Coolify UI: ${coolify_url}
 2) Create admin on first visit.
-3) Deploy this repo (Dockerfile target: render) as a Docker Compose / Dockerfile app.
-4) Copy env from /opt/ats/ats.env into the Coolify app environment.
-5) On Cloud SQL (once): CREATE EXTENSION IF NOT EXISTS vector;
-6) Map public port 3000 (or put Coolify proxy on 80/443 with your domain).
+3) Deploy this repo as a Docker Compose app (docker-compose.yml).
+4) Copy env from /opt/ats/ats.env into the Coolify app environment
+   (set POSTGRES_PASSWORD / DATABASE_URL the same as ats.env).
+5) Point the public domain at the "app" service, container port 3000.
+6) Once postgres is up: CREATE EXTENSION IF NOT EXISTS vector;
+7) In Coolify, keep build concurrency at 1 so deploys do not starve the host.
 
 SSH: gcloud compute ssh ats-app --zone=ZONE
 Logs:  tail -f /var/log/ats-startup.log
@@ -49,5 +71,19 @@ EOF
 
 echo "[ats] Installing Coolify (this takes several minutes)..."
 curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
+
+# ── Docker daemon: BuildKit + log rotation (after Coolify installs Docker) ────
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json <<'JSON'
+{
+  "features": { "buildkit": true },
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+JSON
+systemctl restart docker || true
 
 echo "[ats] Coolify install finished. UI: ${coolify_url}"

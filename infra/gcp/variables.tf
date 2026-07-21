@@ -20,25 +20,13 @@ variable "name_prefix" {
 
 variable "machine_type" {
   type        = string
-  default     = "e2-standard-2" # 2 vCPU / 8GB
-  description = "Coolify + ATS needs ≥2 vCPU / 8GB"
+  default     = "e2-standard-4" # 4 vCPU / 16GB — builds + Coolify + compose
+  description = "Coolify host: 4 vCPU / 16GB leaves headroom for Docker builds"
 }
 
 variable "disk_size_gb" {
   type    = number
-  default = 80
-}
-
-variable "db_tier" {
-  type        = string
-  default     = "db-custom-1-3840"
-  description = "Cloud SQL tier (f1-micro is too small for pgvector workloads)"
-}
-
-variable "db_password" {
-  type        = string
-  sensitive   = true
-  description = "Postgres password for user ats"
+  default = 120
 }
 
 variable "nextauth_secret" {
@@ -49,7 +37,7 @@ variable "nextauth_secret" {
 variable "domain" {
   type        = string
   default     = ""
-  description = "Public https origin for NEXTAUTH_URL. Empty → http://EXTERNAL_IP:3000 until Coolify domain is set"
+  description = "Public https origin for NEXTAUTH_URL. Empty → http://EXTERNAL_IP until Coolify domain is set"
 }
 
 variable "ssh_source_ranges" {
