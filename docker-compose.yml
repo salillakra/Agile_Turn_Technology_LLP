@@ -104,7 +104,7 @@ services:
       target: runner
     restart: unless-stopped
     # Skip migrate entrypoint — app already applies schema on boot
-    entrypoint: ["node", "--max-old-space-size=4096", "./node_modules/.bin/tsx", "workers/index.ts"]
+    entrypoint: ["su-exec", "nextjs", "node", "--max-old-space-size=4096", "./node_modules/.bin/tsx", "workers/index.ts"]
     env_file:
       - .env
     environment:
@@ -130,7 +130,7 @@ services:
       dockerfile: Dockerfile
       target: runner
     restart: unless-stopped
-    entrypoint: ["npx", "tsx", "monitor/server.ts"]
+    entrypoint: ["su-exec", "nextjs", "npx", "tsx", "monitor/server.ts"]
     env_file:
       - .env
     environment:

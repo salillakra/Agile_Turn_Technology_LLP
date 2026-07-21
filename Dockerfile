@@ -46,7 +46,7 @@ RUN node --max-old-space-size=4096 ./node_modules/next/dist/bin/next build
 # Stage 3: runner — minimal production image
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
-RUN apk add --no-cache libc6-compat openssl curl
+RUN apk add --no-cache libc6-compat openssl curl su-exec
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -73,8 +73,6 @@ COPY --from=builder /app/package.json  ./package.json
 COPY docker/app-entrypoint.sh /usr/local/bin/app-entrypoint.sh
 RUN chmod +x /usr/local/bin/app-entrypoint.sh && \
     mkdir -p uploads/resumes && chown -R nextjs:nodejs uploads
-
-USER nextjs
 
 EXPOSE 3000
 ENV PORT=3000
