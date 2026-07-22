@@ -32,7 +32,6 @@ The Git repository root is this `app` directory. A companion Python microservice
 ### Operations
 
 - **BullMQ workers** — Background processing for resume parsing, embeddings, email, and analytics refresh.
-- **Queue monitor** — Bull Board UI for queue inspection (Admin, separate process on port 3030 by default).
 - **Email monitoring** — Admin view of outbound email logs and delivery status.
 - **Interview scheduling** — Create, reschedule, cancel interviews; conflict detection; panel notices and reminders via email queue.
 
@@ -222,18 +221,11 @@ npm run dev:all
 npm run worker
 ```
 
-**Terminal 3 — Queue monitor (optional)**
-
-```bash
-npm run monitor
-```
-
 Default URLs:
 
 | Service | URL |
 |---------|-----|
 | Application | http://localhost:3000 |
-| Queue monitor (Bull Board) | http://127.0.0.1:3030/admin/queues |
 | AI service API docs | http://127.0.0.1:8000/docs |
 
 ---
@@ -243,13 +235,11 @@ Default URLs:
 | Script | Description |
 |--------|-------------|
 | `npm run dev` | Start Next.js development server |
-| `npm run dev:all` | Next.js + queue monitor (concurrently) |
-| `npm run dev:monitor` | Queue monitor only |
+| `npm run dev:stack` | Next.js + BullMQ worker (concurrently) |
 | `npm run build` | Production build |
 | `npm run start` | Start production server |
 | `npm run lint` | ESLint |
 | `npm run worker` | BullMQ worker process |
-| `npm run monitor` | Bull Board Express server |
 | `npm run prisma:generate` | Generate Prisma client |
 | `npm run prisma:migrate` | Create/apply dev migrations |
 | `npm run prisma:deploy` | Apply migrations (production/CI) |
@@ -265,7 +255,7 @@ app/
 │   ├── (dashboard)/        # Authenticated UI (jobs, applicants, search, admin)
 │   └── api/                # REST API handlers
 ├── components/             # React UI components
-├── monitor/                # Bull Board server entry
+├── workers/                # BullMQ worker entry
 ├── prisma/
 │   ├── schema.prisma       # Data model
 │   └── migrations/         # SQL migrations (incl. pgvector)
@@ -342,10 +332,6 @@ Email types include application received, stage changes, interview scheduled/res
 
 Redis is healthy in WSL but Windows cannot reach it through `127.0.0.1:6379`. Restart Redis in WSL, confirm `redis-cli ping` returns `PONG`, then refresh the portproxy rule with the current WSL IP.
 
-### Queue monitor shows no jobs
-
-Confirm Redis is running, `npm run worker` is active, and `REDIS_URL` matches between app, worker, and monitor.
-
 ### AI parse or embeddings fail
 
 Confirm `ai-service` is running, `AI_SERVICE_URL` is correct, and `RESUME_FILES_BASE_PATH` (AI service) matches the ATS resume upload directory.
@@ -369,7 +355,6 @@ Run `npm run prisma:deploy` on a Postgres instance with the `vector` extension e
 | Redis caching / rate limits (e.g. [Upstash](https://upstash.com) free Redis) | Yes, with `REDIS_URL` |
 | Resume parse cron | Yes (`vercel.json` runs `/api/cron/process-parse-jobs` every 5 min) |
 | BullMQ `npm run worker` | No (needs a separate host: Railway, Render, or your PC) |
-| Queue monitor (Bull Board) | No (local only: `npm run monitor`) |
 | AI service (`ai-service` Python) | No (host on Render/Railway or run locally; set `AI_SERVICE_URL`) |
 | Resume file storage | Limited (serverless disk is ephemeral; uploads may not persist across deploys) |
 
@@ -391,7 +376,9 @@ Run `npm run prisma:deploy` on a Postgres instance with the `vector` extension e
 | `REDIS_URL` | Recommended | Upstash Redis URL (`rediss://...`) |
 | `CRON_SECRET` | Yes (for cron) | Random secret; Vercel sends `Authorization: Bearer <value>` |
 | `AI_SERVICE_URL` | Optional | Public URL of hosted `ai-service`, or leave unset for heuristic parse only |
-| `QUEUE_MONITOR_AUTO_START` | Optional | `false` (default on Vercel is production; monitor is disabled anyway) |
+| `BREVO_API_KEY` | Recommended | Brevo transactional API key |
+| `BREVO_FROM` / `SMTP_FROM` | Recommended | Verified sender for outbound mail |
+| `EMAIL_SEND_ENABLED` | Recommended | `1` to enable worker sends |
 
 Do **not** commit `.env` to GitHub.
 

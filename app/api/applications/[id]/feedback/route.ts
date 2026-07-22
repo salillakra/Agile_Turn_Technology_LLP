@@ -12,8 +12,7 @@ import {
 } from "@/src/lib/activity-log-details";
 import { clearInterviewReminderEmailsBestEffort } from "@/src/lib/enqueue-interview-reminder";
 import { clearInterviewReminderJobs } from "@/src/lib/interview-reminder-integration";
-import { scheduleInterviewScheduledCommunications } from "@/src/lib/interview-email-orchestration";
-import { scheduleInterviewScheduledEmail } from "@/src/lib/schedule-interview-scheduled-email";
+import { scheduleInterviewEntityRemindersAfterSet } from "@/src/lib/schedule-interview-entity-reminders";
 import { scheduleInterviewRemindersAfterInterviewSet } from "@/src/lib/schedule-interview-reminders";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -23,8 +22,9 @@ const MAX_RATING = 5;
 
 /**
  * PATCH /api/applications/[id]/feedback — add or update interview feedback (rating 1–5, notes, optional interviewDate).
- * Optional `meetingLink`, `interviewer`, `timeZone` for interview emails.
- * Schedules delayed 24h + 1h reminders (cancelled automatically when `interviewDate` is cleared or changed).
+ * Optional `meetingLink`, `interviewer`, `timeZone` for reminder copy.
+ * On interviewDate change: clear/refresh delayed reminders only — does **not** enqueue
+ * `interview_scheduled` (that is owned by POST /api/interviews to avoid double-send).
  */
 export async function PATCH(request: Request, context: RouteContext) {
   const auth = await requireApiAuth(canEditCandidate);
@@ -173,20 +173,10 @@ export async function PATCH(request: Request, context: RouteContext) {
         typeof body.timeZone === "string" ? body.timeZone.trim() : undefined;
 
       if (activeInterview) {
+        // Reminders only — never re-blast interview_scheduled / panel notices.
         clearInterviewReminderEmailsBestEffort(id);
-        scheduleInterviewScheduledCommunications(activeInterview.id);
+        scheduleInterviewEntityRemindersAfterSet(activeInterview.id);
       } else if (recipient) {
-        scheduleInterviewScheduledEmail({
-          applicationId: id,
-          jobId: updated.jobId,
-          recipient,
-          candidateName: updated.candidate.candidateName,
-          jobTitle: updated.job.title,
-          interviewDate: data.interviewDate,
-          meetingLink: meetingLink || undefined,
-          interviewer: interviewer || undefined,
-          timeZone,
-        });
         scheduleInterviewRemindersAfterInterviewSet({
           applicationId: id,
           recipient,

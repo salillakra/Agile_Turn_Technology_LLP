@@ -27,7 +27,9 @@ function normalizeEmail(email: string): string {
 export function channelsFromRow(row: EmailPreference): EmailPreferenceChannel {
   return {
     stageUpdates: row.stageUpdates,
+    interviewEmails: row.interviewEmails,
     interviewReminders: row.interviewReminders,
+    offerEmails: row.offerEmails,
     marketingEmails: row.marketingEmails,
   };
 }
@@ -114,7 +116,7 @@ export type UpsertEmailPreferenceInput = {
 } & Partial<EmailPreferenceChannel>;
 
 /**
- * Create or update preferences (future settings API / unsubscribe links).
+ * Create or update preferences (settings API / unsubscribe links).
  */
 export async function upsertEmailPreferences(
   input: UpsertEmailPreferenceInput
@@ -126,9 +128,12 @@ export async function upsertEmailPreferences(
     candidateId: input.candidateId ?? null,
     stageUpdates:
       input.stageUpdates ?? DEFAULT_EMAIL_PREFERENCE_CHANNELS.stageUpdates,
+    interviewEmails:
+      input.interviewEmails ?? DEFAULT_EMAIL_PREFERENCE_CHANNELS.interviewEmails,
     interviewReminders:
       input.interviewReminders ??
       DEFAULT_EMAIL_PREFERENCE_CHANNELS.interviewReminders,
+    offerEmails: input.offerEmails ?? DEFAULT_EMAIL_PREFERENCE_CHANNELS.offerEmails,
     marketingEmails:
       input.marketingEmails ?? DEFAULT_EMAIL_PREFERENCE_CHANNELS.marketingEmails,
   };
@@ -140,7 +145,9 @@ export async function upsertEmailPreferences(
       userId: data.userId,
       candidateId: data.candidateId,
       stageUpdates: data.stageUpdates,
+      interviewEmails: data.interviewEmails,
       interviewReminders: data.interviewReminders,
+      offerEmails: data.offerEmails,
       marketingEmails: data.marketingEmails,
     },
   });

@@ -390,7 +390,8 @@ export type CandidateStageUpdateEmailPayload = {
 /**
  * Enqueue candidate stage-update email (BullMQ `ats:email`, template `stage_update`).
  * Does not send mail — the email worker delivers asynchronously.
- * Skips when Redis is unset, recipient is empty, or `toStage` is `OFFER_SENT` (use `offer_sent`).
+ * Skips when Redis is unset, recipient is empty, `toStage` is `OFFER_SENT` (use `offer_sent`),
+ * or `toStage` is `INTERVIEW` (use `interview_scheduled` from interview create).
  */
 export async function notifyCandidateStageChangeEmailDeferred(
   payload: CandidateStageUpdateEmailPayload
@@ -398,6 +399,7 @@ export async function notifyCandidateStageChangeEmailDeferred(
   const recipient = payload.candidateEmail?.trim();
   if (!recipient || !isRedisConfigured()) return;
   if (payload.toStage === "OFFER_SENT") return;
+  if (payload.toStage === "INTERVIEW") return;
 
   const oldStage = formatApplicationStageLabel(payload.fromStage);
   const newStage = formatApplicationStageLabel(payload.toStage);

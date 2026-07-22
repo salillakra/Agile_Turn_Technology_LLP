@@ -8,6 +8,7 @@
 
 /** Env var names that must never appear in logs, API responses, or ActivityLog details. */
 export const EMAIL_SECRET_ENV_KEYS = [
+  "BREVO_API_KEY",
   "SMTP_PASSWORD",
   "RESEND_API_KEY",
   "SENDGRID_API_KEY",
@@ -65,18 +66,18 @@ export const EMAIL_AUTHENTICATION_PRACTICES = {
  */
 export const EMAIL_ENV_SECURITY_PRACTICES = {
   storage: [
-    "Keep `SMTP_PASSWORD` and future provider keys (`RESEND_API_KEY`, etc.) only in `.env`, secrets manager, or CI/CD secrets — never in git.",
+    "Keep `BREVO_API_KEY` (and any legacy SMTP passwords) only in `.env`, secrets manager, or CI/CD secrets — never in git.",
     "Use different credentials per environment (dev/staging/production).",
     "Restrict production secrets to the worker and API processes that send mail — not the browser.",
   ],
   runtime: [
     "Never log raw env values listed in EMAIL_SECRET_ENV_KEYS; use redactEmailSecretsInText() before logging errors.",
-    "Use describeSmtpEnvForLogs() for SMTP health output — it omits passwords.",
-    "Set EMAIL_SEND_ENABLED=1 only when SMTP/API is configured; keep disabled in local DB-only dev unless using a sink (Mailpit).",
+    "Use describeBrevoEnvForLogs() for health output — it omits API keys.",
+    "Set EMAIL_SEND_ENABLED=1 only when Brevo is configured; keep disabled in local DB-only dev.",
   ],
   optionalEnv: {
     EMAIL_SENDING_DOMAIN:
-      "Optional. Domain part of SMTP_FROM (e.g. example.com) for startup validation warnings when misaligned.",
+      "Optional. Domain part of BREVO_FROM / SMTP_FROM (e.g. example.com) for startup validation warnings when misaligned.",
   },
 } as const;
 
@@ -141,6 +142,7 @@ export type EmailSecurityValidation = {
 export function validateEmailSecurityConfig(): EmailSecurityValidation {
   const warnings: string[] = [];
   const from =
+    process.env.BREVO_FROM?.trim() ||
     process.env.SMTP_FROM?.trim() ||
     process.env.EMAIL_FROM?.trim() ||
     "";
@@ -149,23 +151,21 @@ export function validateEmailSecurityConfig(): EmailSecurityValidation {
   if (from) {
     const fromDomain = sendingDomainFromFromHeader(from);
     if (!fromDomain) {
-      warnings.push("SMTP_FROM is set but could not parse a valid email address.");
+      warnings.push("From address is set but could not parse a valid email address.");
     } else if (declaredDomain && fromDomain !== declaredDomain) {
       warnings.push(
-        `EMAIL_SENDING_DOMAIN (${declaredDomain}) does not match SMTP_FROM domain (${fromDomain}).`
+        `EMAIL_SENDING_DOMAIN (${declaredDomain}) does not match From domain (${fromDomain}).`
       );
     }
 
     if (process.env.NODE_ENV === "production") {
       if (!declaredDomain) {
         warnings.push(
-          "Production: set EMAIL_SENDING_DOMAIN to match SMTP_FROM for alignment checks and runbooks."
+          "Production: set EMAIL_SENDING_DOMAIN to match BREVO_FROM / SMTP_FROM for alignment checks and runbooks."
         );
       }
-      const localHosts = ["localhost", "127.0.0.1", "0.0.0.0"];
-      const smtpHost = process.env.SMTP_HOST?.trim().toLowerCase();
-      if (smtpHost && localHosts.includes(smtpHost)) {
-        warnings.push("Production: SMTP_HOST points at localhost — use your provider's relay host.");
+      if (!process.env.BREVO_API_KEY?.trim()) {
+        warnings.push("Production: BREVO_API_KEY is not set — outbound email will not send.");
       }
     }
   }

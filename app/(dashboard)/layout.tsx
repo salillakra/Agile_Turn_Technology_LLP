@@ -22,7 +22,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
         applicantsCount={nav.applicantsCount}
         hiredCount={nav.hiredCount}
         activeCount={nav.activeCount}
-        showQueueMonitor={isAdmin(session.user?.role)}
         showEmailMonitoring={isAdmin(session.user?.role)}
         showCrm={isAdmin(session.user?.role)}
       />

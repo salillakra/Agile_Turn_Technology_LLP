@@ -15,6 +15,7 @@ import {
   ClockCounterClockwise,
   UserGear,
   UserCircle,
+  SlidersHorizontal,
   EnvelopeSimple,
   SignOut,
   SignOutIcon,
@@ -32,7 +33,6 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
-import QueueMonitorLink from "@/components/QueueMonitorLink";
 import { themeConfig } from "@/lib/theme";
 
 const NAV_ITEMS = [
@@ -45,6 +45,7 @@ const NAV_ITEMS = [
   { id: "reports", href: "/reports", icon: ChartBar, label: "Reports" },
   { id: "logs", href: "/logs", icon: ClockCounterClockwise, label: "Logs" },
   { id: "users", href: "/users", icon: UserGear, label: "Users" },
+  { id: "settings", href: "/settings", icon: SlidersHorizontal, label: "Settings" },
   { id: "profile", href: "/profile", icon: UserCircle, label: "Profile" },
 ];
 
@@ -53,7 +54,6 @@ export default function AppSidebar({
   applicantsCount = 0,
   hiredCount = 0,
   activeCount = 0,
-  showQueueMonitor = false,
   showEmailMonitoring = false,
   showCrm = false,
 }) {
@@ -131,11 +131,6 @@ export default function AppSidebar({
                   </SidebarMenuItem>
                 );
               })}
-              {showQueueMonitor && (
-                <SidebarMenuItem>
-                  <QueueMonitorLink />
-                </SidebarMenuItem>
-              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

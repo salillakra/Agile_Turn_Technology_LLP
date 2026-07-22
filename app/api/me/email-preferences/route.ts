@@ -8,8 +8,8 @@ import {
 import { prisma } from "@/src/lib/prisma";
 
 /**
- * GET /api/me/email-preferences — current user's email channel settings (no UI yet).
- * PATCH — update stage updates, interview reminders, marketing emails.
+ * GET /api/me/email-preferences — current user's email channel settings.
+ * PATCH — update controllable channels (stage, interview, reminders, offer, marketing).
  */
 
 export async function GET() {
@@ -62,8 +62,14 @@ export async function PATCH(request: Request) {
   if (typeof body.stageUpdates === "boolean") {
     patch.stageUpdates = body.stageUpdates;
   }
+  if (typeof body.interviewEmails === "boolean") {
+    patch.interviewEmails = body.interviewEmails;
+  }
   if (typeof body.interviewReminders === "boolean") {
     patch.interviewReminders = body.interviewReminders;
+  }
+  if (typeof body.offerEmails === "boolean") {
+    patch.offerEmails = body.offerEmails;
   }
   if (typeof body.marketingEmails === "boolean") {
     patch.marketingEmails = body.marketingEmails;

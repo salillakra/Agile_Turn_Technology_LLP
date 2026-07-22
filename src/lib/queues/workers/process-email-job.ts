@@ -28,7 +28,7 @@ export async function processEmailJob(job: Job<EmailJobPayload>): Promise<void> 
   if (shouldSkipEmailSend()) {
     const reason = isSmtpConfigured()
       ? "EMAIL_SEND_ENABLED is not set"
-      : "SMTP not configured (SMTP_HOST, SMTP_FROM)";
+      : "Brevo not configured (BREVO_API_KEY, BREVO_FROM or SMTP_FROM)";
 
     const skipped = extractEmailJobPayload(job.data);
     console.info(

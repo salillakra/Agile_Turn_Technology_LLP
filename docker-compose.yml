@@ -74,7 +74,6 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-atsuser}:${POSTGRES_PASSWORD:-atspassword}@postgres:5432/${POSTGRES_DB:-atsdb}?sslmode=disable
       REDIS_URL: redis://redis:6379
       AI_SERVICE_URL: http://ai-service:8000
-      QUEUE_MONITOR_AUTO_START: "false"
       NODE_ENV: production
     # Coolify proxy routes here; no host bind (avoids "port is already allocated")
     expose:
@@ -117,30 +116,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-      app:
-        condition: service_healthy
-
-  # ── Bull Board Queue Monitor ─────────────────────────────────────────────────
-
-  monitor:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runner
-    restart: unless-stopped
-    entrypoint: ["su-exec", "nextjs", "npx", "tsx", "monitor/server.ts"]
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-atsuser}:${POSTGRES_PASSWORD:-atspassword}@postgres:5432/${POSTGRES_DB:-atsdb}?sslmode=disable
-      REDIS_URL: redis://redis:6379
-      QUEUE_MONITOR_PORT: "3030"
-      NODE_ENV: production
-    expose:
-      - "3030"
-    depends_on:
       redis:
         condition: service_healthy
       app:

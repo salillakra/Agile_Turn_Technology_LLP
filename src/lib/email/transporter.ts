@@ -1,30 +1,37 @@
-import nodemailer from "nodemailer";
-import type { Transporter } from "nodemailer";
-import type SMTPTransport from "nodemailer/lib/smtp-transport";
+/**
+ * Outbound email provider gate (Brevo transactional API).
+ * Kept file name `transporter.ts` for existing imports; no nodemailer pool.
+ */
+import { BrevoClient, BrevoError } from "@getbrevo/brevo";
 import { redactEmailSecretsInText } from "@/src/lib/email/email-security";
 import {
-  describeSmtpEnvForLogs,
-  resolveSmtpEnvConfig,
-  validateSmtpEnvConfig,
-  type SmtpEnvConfig,
-} from "@/src/lib/email/smtp-env";
+  describeBrevoEnvForLogs,
+  resolveBrevoEnvConfig,
+  validateBrevoEnvConfig,
+  type BrevoEnvConfig,
+} from "@/src/lib/email/brevo-env";
 
-let cachedTransporter: Transporter<SMTPTransport.SentMessageInfo> | null = null;
+let cachedClient: BrevoClient | null = null;
 
-/** @deprecated Use {@link SmtpEnvConfig} */
-export type SmtpConfig = SmtpEnvConfig;
+/** @deprecated Prefer {@link BrevoEnvConfig} / {@link resolveBrevoEnvConfig}. */
+export type SmtpConfig = BrevoEnvConfig;
+export type SmtpEnvConfig = BrevoEnvConfig;
 
 /**
- * True when required SMTP env vars are present (`SMTP_HOST`, `SMTP_FROM`, and password if `SMTP_USER` set).
+ * True when Brevo API key + from address are present.
  * Does not imply outbound sending is enabled — see {@link isEmailSendingEnabled}.
  */
 export function isSmtpConfigured(): boolean {
-  return resolveSmtpEnvConfig() != null;
+  return resolveBrevoEnvConfig() != null;
+}
+
+/** @alias isSmtpConfigured */
+export function isOutboundEmailConfigured(): boolean {
+  return isSmtpConfigured();
 }
 
 /**
- * Outbound sends are gated separately so the transporter can be verified without delivering mail.
- * Set `EMAIL_SEND_ENABLED=1` when ready to send from the email worker.
+ * Outbound sends require Brevo config and `EMAIL_SEND_ENABLED=1|true|yes`.
  */
 export function isEmailSendingEnabled(): boolean {
   if (!isSmtpConfigured()) return false;
@@ -32,102 +39,72 @@ export function isEmailSendingEnabled(): boolean {
   return flag === "1" || flag === "true" || flag === "yes";
 }
 
-/** @alias resolveSmtpEnvConfig */
-export function resolveSmtpConfig(): SmtpEnvConfig | null {
-  return resolveSmtpEnvConfig();
+export function resolveSmtpConfig(): BrevoEnvConfig | null {
+  return resolveBrevoEnvConfig();
 }
 
-function createTransportFromConfig(
-  config: SmtpEnvConfig
-): Transporter<SMTPTransport.SentMessageInfo> {
-  return nodemailer.createTransport({
-    host: config.host,
-    port: config.port,
-    secure: config.secure,
-    auth:
-      config.user && config.password
-        ? { user: config.user, pass: config.password }
-        : undefined,
-  });
-}
+export function getBrevoClient(): BrevoClient {
+  if (cachedClient) return cachedClient;
 
-/**
- * Reusable lazily-initialized SMTP transporter (one instance per process).
- */
-export function getEmailTransporter(): Transporter<SMTPTransport.SentMessageInfo> {
-  if (cachedTransporter) return cachedTransporter;
-
-  const config = resolveSmtpEnvConfig();
-  const validationError = validateSmtpEnvConfig(config);
+  const config = resolveBrevoEnvConfig();
+  const validationError = validateBrevoEnvConfig(config);
   if (validationError || !config) {
     throw new Error(
       validationError ??
-        "SMTP is not configured. Set SMTP_HOST, SMTP_FROM, SMTP_PORT (optional), SMTP_USER + SMTP_PASSWORD (optional)."
+        "Brevo is not configured. Set BREVO_API_KEY and BREVO_FROM (or SMTP_FROM)."
     );
   }
 
-  cachedTransporter = createTransportFromConfig(config);
-  return cachedTransporter;
+  cachedClient = new BrevoClient({
+    apiKey: config.apiKey,
+    timeoutInSeconds: 30,
+    maxRetries: 1,
+  });
+  return cachedClient;
 }
 
 export type SmtpVerifyResult =
   | { ok: true; message: string }
   | { ok: false; message: string; code?: string };
 
-function sanitizeVerifyErrorMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  return redactEmailSecretsInText(raw);
-}
-
 /**
- * Verifies SMTP connectivity (nodemailer `transporter.verify()`).
- * Does not send a message. Safe to call from health checks or startup scripts.
+ * Lightweight config check (does not call Brevo). Prefer a real send for connectivity tests.
  */
 export async function verifySmtpConnection(): Promise<SmtpVerifyResult> {
-  const config = resolveSmtpEnvConfig();
-  const validationError = validateSmtpEnvConfig(config);
+  const config = resolveBrevoEnvConfig();
+  const validationError = validateBrevoEnvConfig(config);
   if (validationError || !config) {
-    return { ok: false, message: validationError ?? "SMTP not configured" };
+    return { ok: false, message: validationError ?? "Brevo not configured" };
   }
-
-  const transporter = getEmailTransporter();
 
   try {
-    await transporter.verify();
+    getBrevoClient();
     return {
       ok: true,
-      message: `SMTP verify OK (${describeSmtpEnvForLogs(config)})`,
+      message: `Brevo config OK (${describeBrevoEnvForLogs(config)})`,
     };
   } catch (error) {
-    const code =
-      typeof error === "object" &&
-      error != null &&
-      "code" in error &&
-      typeof (error as { code: unknown }).code === "string"
-        ? (error as { code: string }).code
-        : undefined;
-
+    const raw = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      code,
-      message: `SMTP verify failed: ${sanitizeVerifyErrorMessage(error)}`,
+      code: error instanceof BrevoError ? String(error.statusCode) : undefined,
+      message: `Brevo verify failed: ${redactEmailSecretsInText(raw)}`,
     };
   }
 }
 
-/** Drop cached transporter (tests, env reload, shutdown). */
 export function resetEmailTransporter(): void {
-  if (cachedTransporter) {
-    try {
-      cachedTransporter.close();
-    } catch {
-      /* ignore */
-    }
-  }
-  cachedTransporter = null;
+  cachedClient = null;
 }
 
-/** Close pooled SMTP connections (worker graceful shutdown). */
+/** No pooled connections for HTTP API — clears cached client. */
 export async function closeEmailTransporter(): Promise<void> {
   resetEmailTransporter();
+}
+
+/** @deprecated Nodemailer removed; use {@link getBrevoClient}. */
+export function getEmailTransporter(): never {
+  throw new Error(
+    "getEmailTransporter removed — outbound mail uses Brevo API (getBrevoClient)."
+  );
 }

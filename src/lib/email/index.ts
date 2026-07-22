@@ -1,7 +1,7 @@
 /**
- * Transactional email infrastructure (SMTP + templates).
+ * Transactional email infrastructure (Brevo API + templates).
  *
- * - `transporter.ts` — nodemailer SMTP configuration
+ * - `brevo-env.ts` / `transporter.ts` — Brevo client + send gate
  * - `email-security.ts` — SPF/DKIM/DMARC guidance, secret redaction, env validation
  * - `templates/` — HTML/text renderers per `EmailTemplateKey`
  * - `send-email.ts` — single send entry point for workers
@@ -21,6 +21,13 @@ export {
 } from "@/src/lib/email/email-security";
 
 export {
+  describeBrevoEnvForLogs,
+  resolveBrevoEnvConfig,
+  validateBrevoEnvConfig,
+  type BrevoEnvConfig,
+} from "@/src/lib/email/brevo-env";
+
+export {
   describeSmtpEnvForLogs,
   resolveSmtpEnvConfig,
   validateSmtpEnvConfig,
@@ -29,8 +36,10 @@ export {
 
 export {
   closeEmailTransporter,
+  getBrevoClient,
   getEmailTransporter,
   isEmailSendingEnabled,
+  isOutboundEmailConfigured,
   isSmtpConfigured,
   resetEmailTransporter,
   resolveSmtpConfig,

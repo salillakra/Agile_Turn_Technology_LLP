@@ -906,8 +906,12 @@ model EmailPreference {
   candidateId        String?    @unique @map("candidate_id")
   /// Pipeline stage update emails (`stage_update`, `stage_changed`).
   stageUpdates       Boolean    @default(true) @map("stage_updates")
+  /// Interview scheduled / rescheduled / cancelled emails to candidates.
+  interviewEmails    Boolean    @default(true) @map("interview_emails")
   /// Delayed reminders (`interview_reminder`).
   interviewReminders Boolean    @default(true) @map("interview_reminders")
+  /// Offer letter emails (`offer_sent`).
+  offerEmails        Boolean    @default(true) @map("offer_emails")
   /// Promotional / newsletter sends (`marketing_*` templates). Opt-in default false.
   marketingEmails    Boolean    @default(false) @map("marketing_emails")
   createdAt          DateTime   @default(now()) @map("created_at")

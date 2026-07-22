@@ -5,11 +5,12 @@ import {
 } from "@/src/lib/queues/workers/worker-errors";
 import { renderEmailTemplate } from "@/src/lib/email/templates";
 import { redactEmailSecretsInText } from "@/src/lib/email/email-security";
+import { resolveBrevoEnvConfig } from "@/src/lib/email/brevo-env";
 import {
-  getEmailTransporter,
+  getBrevoClient,
   isEmailSendingEnabled,
-  resolveSmtpConfig,
 } from "@/src/lib/email/transporter";
+import { BrevoError } from "@getbrevo/brevo";
 
 export type SendEmailResult = {
   messageId: string;
@@ -26,89 +27,73 @@ export type SendEmailParams = {
   text: string;
 };
 
-const PERMANENT_SMTP_CODES = new Set([
-  "EAUTH",
-  "EENVELOPE",
-  "EMESSAGE",
-  "ENOENT",
-]);
-
 function classifySendError(error: unknown): Error {
   if (error instanceof Error && error.name === "UnrecoverableError") {
     return error;
   }
 
-  const code =
-    typeof error === "object" &&
-    error != null &&
-    "code" in error &&
-    typeof (error as { code: unknown }).code === "string"
-      ? (error as { code: string }).code
-      : undefined;
-
-  const responseCode =
-    typeof error === "object" &&
-    error != null &&
-    "responseCode" in error &&
-    typeof (error as { responseCode: unknown }).responseCode === "number"
-      ? (error as { responseCode: number }).responseCode
-      : undefined;
-
   const safeMessage = redactEmailSecretsInText(
     error instanceof Error ? error.message : String(error)
   );
 
-  if (code && PERMANENT_SMTP_CODES.has(code)) {
-    return permanentWorkerError(`SMTP permanent error (${code}): ${safeMessage}`, error);
+  if (error instanceof BrevoError) {
+    const status = error.statusCode;
+    if (status === 401 || status === 403 || status === 400 || status === 422) {
+      return permanentWorkerError(
+        `Brevo permanent error (${status}): ${safeMessage}`,
+        error
+      );
+    }
+    if (status === 429 || (status != null && status >= 500)) {
+      return transientWorkerError(
+        `Brevo transient error (${status}): ${safeMessage}`,
+        error
+      );
+    }
   }
 
-  if (responseCode != null && responseCode >= 500 && responseCode < 600) {
-    return transientWorkerError(`SMTP server error (${responseCode}): ${safeMessage}`, error);
-  }
-
-  return transientWorkerError(`SMTP send failed: ${safeMessage}`, error);
+  return transientWorkerError(`Brevo send failed: ${safeMessage}`, error);
 }
 
 function assertSendingEnabled(): void {
   if (!isEmailSendingEnabled()) {
     throw permanentWorkerError(
-      "Email sending is disabled (set SMTP_HOST, SMTP_FROM, SMTP_PASSWORD as needed, then EMAIL_SEND_ENABLED=1)"
+      "Email sending is disabled (set BREVO_API_KEY, BREVO_FROM or SMTP_FROM, then EMAIL_SEND_ENABLED=1)"
     );
   }
 }
 
 /**
- * Central SMTP send utility (nodemailer). All outbound mail goes through here.
+ * Central outbound send via Brevo transactional API. All pipeline mail goes through here.
  */
 export async function sendEmail(params: SendEmailParams): Promise<SendEmailResult> {
   assertSendingEnabled();
 
-  const smtp = resolveSmtpConfig();
-  if (!smtp) {
-    throw permanentWorkerError("SMTP configuration is incomplete");
+  const config = resolveBrevoEnvConfig();
+  if (!config) {
+    throw permanentWorkerError("Brevo configuration is incomplete");
   }
 
-  const transporter = getEmailTransporter();
+  const brevo = getBrevoClient();
 
   try {
-    const info = await transporter.sendMail({
-      from: smtp.from,
-      to: params.to,
+    const result = await brevo.transactionalEmails.sendTransacEmail({
       subject: params.subject,
-      html: params.html,
-      text: params.text,
+      htmlContent: params.html,
+      textContent: params.text,
+      sender: {
+        email: config.senderEmail,
+        ...(config.senderName ? { name: config.senderName } : {}),
+      },
+      to: [{ email: params.to.trim() }],
     });
 
     const messageId =
-      typeof info.messageId === "string" && info.messageId.length > 0
-        ? info.messageId
+      typeof result.messageId === "string" && result.messageId.length > 0
+        ? result.messageId
         : "unknown";
 
-    const accepted = Array.isArray(info.accepted)
-      ? info.accepted.map(String)
-      : [params.to];
-
-    return { messageId, accepted };
+    return { messageId, accepted: [params.to.trim()] };
   } catch (err) {
     throw classifySendError(err);
   }
@@ -135,7 +120,7 @@ export async function sendTransactionalEmail(
   });
 }
 
-/** Worker no-op when SMTP is disabled (dev). */
+/** Worker no-op when Brevo is disabled (dev). */
 export function shouldSkipEmailSend(): boolean {
   return !isEmailSendingEnabled();
 }

@@ -66,7 +66,6 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/generated     ./generated
 COPY --from=builder /app/src           ./src
 COPY --from=builder /app/workers       ./workers
-COPY --from=builder /app/monitor       ./monitor
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/package.json  ./package.json
 
