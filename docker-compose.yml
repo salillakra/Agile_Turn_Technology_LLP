@@ -120,6 +120,13 @@ services:
         condition: service_healthy
       app:
         condition: service_healthy
+    # No HTTP server — prove the BullMQ process is still alive (clears Coolify "No health check configured")
+    healthcheck:
+      test: ["CMD-SHELL", "ps | grep -v grep | grep -q 'workers/index'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
 volumes:
   postgres_data:
