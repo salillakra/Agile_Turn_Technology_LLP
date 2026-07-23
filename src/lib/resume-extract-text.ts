@@ -63,7 +63,7 @@ export async function extractPlainTextFromResumeBuffer(
         if (fallback.ok) return fallback;
         return {
           ok: false,
-          error: primary || fallback.error || "PDF text extraction failed",
+          error: primary || ("error" in fallback ? fallback.error : "PDF text extraction failed"),
         };
       }
       // Empty pdf-parse output — try pdfjs (some damaged PDFs return blank text).
