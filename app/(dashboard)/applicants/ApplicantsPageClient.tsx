@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useQueryClient } from "@tanstack/react-query";
 import { applicantKeys } from "@/hooks/queries/useApplicants";
+import { invalidateSidebarNav } from "@/hooks/queries/useSidebarNav";
 
 function ApplicantsPageClient() {
   const queryClient = useQueryClient();
@@ -43,7 +44,10 @@ function ApplicantsPageClient() {
   const applicants = rawApps.map((r: any) => mapApplicationsApiRowToApplicantItem(r));
 
   const handleRefresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: applicantKeys.all });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: applicantKeys.all }),
+      invalidateSidebarNav(queryClient),
+    ]);
   };
 
   return (

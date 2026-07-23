@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import Kanban from "@/components/pages/Kanban";
 import { STAGES, STAGE_LABEL_TO_API } from "@/data/mockData";
 import { APPLICATION_STAGE_TO_UI_LABEL } from "@/src/lib/applications-drilldown-ui";
 import { isValidStageTransition } from "@/src/lib/application-stage-transitions";
+import { invalidateSidebarNav } from "@/hooks/queries/useSidebarNav";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -66,6 +69,7 @@ function KanbanLoading() {
 }
 
 export default function KanbanPage() {
+  const queryClient = useQueryClient();
   const [applicants, setApplicants] = useState([]);
   const [loadState, setLoadState] = useState("loading");
   const [error, setError] = useState(null);
@@ -109,7 +113,13 @@ export default function KanbanPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stage: nextApi, version: a.version }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast.error(
+          body?.message || body?.error || `Stage update failed (${res.status})`,
+        );
+        return;
+      }
       const updated = await res.json().catch(() => null);
       if (!updated?.id) return;
       setApplicants((prev) =>
@@ -124,10 +134,11 @@ export default function KanbanPage() {
             : x
         )
       );
-    } catch {
-      // Fire-and-forget advance must not become an unhandled rejection.
+      void invalidateSidebarNav(queryClient);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Stage update failed");
     }
-  }, []);
+  }, [queryClient]);
 
   if (loadState === "loading" && applicants.length === 0) {
     return <KanbanLoading />;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
@@ -21,6 +21,7 @@ import {
 import ResumeCandidateModal from "@/components/ResumeCandidateModal";
 import RecommendedRolesPanel from "@/components/RecommendedRolesPanel";
 import { NOTIFICATIONS_REFRESH_EVENT } from "@/components/NotificationBell";
+import { toast } from "sonner";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -58,16 +59,56 @@ import {
   MagnifyingGlass,
   ArrowsClockwise,
   X,
+  Eye,
   UploadSimple,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import {
   bulkUploadResumesForJob,
-  type BulkResumeImportResult,
 } from "@/lib/api/applicants";
 
 /** Must match `BULK_RESUME_MAX_FILES` in `src/lib/bulk-resume-import.ts`. */
 const BULK_RESUME_MAX_FILES = 100;
+
+type ParseBatchProgress = {
+  total: number;
+  completed: number;
+  failed: number;
+  processing: number;
+  pending: number;
+  left: number;
+  candidates: Array<{
+    candidateId: string;
+    resumeUrl: string | null;
+    resumeFileName: string | null;
+    status: string | null;
+    error: string | null;
+  }>;
+};
+
+/** Survives modal close — drives list-row parse badges + compact banner. */
+type BulkParseSession = {
+  candidateIds: string[];
+  /** candidateId → original upload file name */
+  fileByCandidate: Record<string, string>;
+};
+
+function isParseTerminal(status: string | null | undefined): boolean {
+  return (
+    status === "COMPLETED" ||
+    status === "PARTIAL" ||
+    status === "FAILED" ||
+    status === "DONE"
+  );
+}
+
+function isParseBusy(status: string | null | undefined): boolean {
+  return (
+    status == null ||
+    status === "PENDING" ||
+    status === "PROCESSING"
+  );
+}
 
 interface ApplicantsProps {
   applicants: any[];
@@ -191,7 +232,111 @@ export default function Applicants({
   const [bulkFiles, setBulkFiles] = useState<File[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkError, setBulkError] = useState("");
-  const [bulkResult, setBulkResult] = useState<BulkResumeImportResult | null>(null);
+  const [bulkParseSession, setBulkParseSession] =
+    useState<BulkParseSession | null>(null);
+  const [bulkParseProgress, setBulkParseProgress] =
+    useState<ParseBatchProgress | null>(null);
+  const bulkDoneToastedRef = useRef(false);
+
+  const refreshBulkParseProgress = useCallback(async (candidateIds: string[]) => {
+    if (candidateIds.length === 0) {
+      setBulkParseProgress(null);
+      return;
+    }
+    try {
+      const res = await fetch("/api/parse-progress/batch", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidateIds }),
+      });
+      const body = (await res.json().catch(() => null)) as ParseBatchProgress | null;
+      if (res.ok && body) setBulkParseProgress(body);
+    } catch {
+      // next SSE/poll tick retries
+    }
+  }, []);
+
+  const parseStatusByCandidate = useMemo(() => {
+    const map = new Map<
+      string,
+      { status: string | null; error: string | null; resumeUrl: string | null }
+    >();
+    for (const row of bulkParseProgress?.candidates ?? []) {
+      map.set(row.candidateId, {
+        status: row.status,
+        error: row.error,
+        resumeUrl: row.resumeUrl,
+      });
+    }
+    return map;
+  }, [bulkParseProgress]);
+
+  // Live parse tracking lives on the page (not inside the modal).
+  useEffect(() => {
+    if (!bulkParseSession?.candidateIds.length) {
+      setBulkParseProgress(null);
+      return;
+    }
+    const candidateIds = bulkParseSession.candidateIds;
+    bulkDoneToastedRef.current = false;
+    void refreshBulkParseProgress(candidateIds);
+
+    let es: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+
+    const connect = () => {
+      if (disposed || typeof EventSource === "undefined") return;
+      es = new EventSource("/api/parse-progress/stream");
+      const onUpdate = () => {
+        void refreshBulkParseProgress(candidateIds);
+      };
+      es.addEventListener("connected", onUpdate);
+      es.addEventListener("parse-progress", onUpdate);
+      es.onerror = () => {
+        es?.close();
+        es = null;
+        if (!disposed) {
+          reconnectTimer = setTimeout(connect, 3000);
+        }
+      };
+    };
+    connect();
+
+    const poll = window.setInterval(() => {
+      void refreshBulkParseProgress(candidateIds);
+    }, 2500);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(poll);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      es?.close();
+    };
+  }, [bulkParseSession, refreshBulkParseProgress]);
+
+  // When batch finishes: toast once, refresh list, keep badges briefly then clear.
+  useEffect(() => {
+    if (!bulkParseSession || !bulkParseProgress) return;
+    if (bulkParseProgress.left > 0) return;
+    if (bulkDoneToastedRef.current) return;
+    bulkDoneToastedRef.current = true;
+    const { completed, failed, total } = bulkParseProgress;
+    if (failed > 0) {
+      toast.message(`Resume parse finished`, {
+        description: `${completed} of ${total} parsed · ${failed} failed`,
+      });
+    } else {
+      toast.success(`All ${completed} resumes parsed`);
+    }
+    void onRefresh();
+    const t = window.setTimeout(() => {
+      setBulkParseSession(null);
+      setBulkParseProgress(null);
+    }, 8_000);
+    return () => window.clearTimeout(t);
+  }, [bulkParseSession, bulkParseProgress, onRefresh]);
 
   const updateForm = (fields: Partial<typeof form>) => {
     setForm((prev) => ({ ...prev, ...fields }));
@@ -265,7 +410,6 @@ export default function Applicants({
     setBulkJobId(jobs[0]?.id || jobQ || "");
     setBulkFiles([]);
     setBulkError("");
-    setBulkResult(null);
     if (bulkInputRef.current) bulkInputRef.current.value = "";
     setBulkModalOpen(true);
   };
@@ -292,14 +436,44 @@ export default function Applicants({
     }
     setBulkLoading(true);
     setBulkError("");
-    setBulkResult(null);
     try {
       const result = await bulkUploadResumesForJob(bulkJobId, bulkFiles);
-      setBulkResult(result);
+      const fileByCandidate: Record<string, string> = {};
+      const candidateIds: string[] = [];
+      for (const r of result.results) {
+        if (!r.success || !r.candidateId) continue;
+        if (!fileByCandidate[r.candidateId]) {
+          candidateIds.push(r.candidateId);
+          fileByCandidate[r.candidateId] = r.fileName;
+        }
+      }
+
+      if (candidateIds.length > 0) {
+        setBulkParseSession({ candidateIds, fileByCandidate });
+      }
+
       await onRefresh();
       window.dispatchEvent(new Event(NOTIFICATIONS_REFRESH_EVENT));
+
+      const jobTitle =
+        jobs.find((j) => j.id === bulkJobId)?.title?.trim() || "position";
+      toast.success(
+        `Imported ${result.succeeded} resume${result.succeeded === 1 ? "" : "s"}`,
+        {
+          description:
+            result.failed > 0
+              ? `${result.failed} failed · parsing ${candidateIds.length} in the background for ${jobTitle}`
+              : `Parsing ${candidateIds.length} in the background for ${jobTitle}`,
+        },
+      );
+
+      setBulkModalOpen(false);
+      setBulkFiles([]);
+      if (bulkInputRef.current) bulkInputRef.current.value = "";
     } catch (err) {
-      setBulkError(err instanceof Error ? err.message : "Bulk upload failed");
+      const msg = err instanceof Error ? err.message : "Bulk upload failed";
+      setBulkError(msg);
+      toast.error(msg);
     } finally {
       setBulkLoading(false);
     }
@@ -540,9 +714,10 @@ export default function Applicants({
       }
       await computeMatchForNewCandidate(candidateId, form.jobId);
     } catch (e) {
-      setSaveError(
-        e instanceof Error ? e.message : "Resume parse/match failed",
-      );
+      const msg =
+        e instanceof Error ? e.message : "Resume parse/match failed";
+      setSaveError(msg);
+      toast.error(msg);
     } finally {
       setSaveLoading(false);
     }
@@ -666,6 +841,7 @@ export default function Applicants({
         setEditData(null);
         await onRefresh();
         window.dispatchEvent(new CustomEvent(NOTIFICATIONS_REFRESH_EVENT));
+        toast.success("Applicant updated");
         return;
       }
 
@@ -725,8 +901,11 @@ export default function Applicants({
       setDraftCandidateId("");
       await onRefresh();
       window.dispatchEvent(new CustomEvent(NOTIFICATIONS_REFRESH_EVENT));
+      toast.success(editData ? "Applicant updated" : "Applicant added");
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Save failed");
+      const msg = e instanceof Error ? e.message : "Save failed";
+      setSaveError(msg);
+      toast.error(msg);
     } finally {
       setSaveLoading(false);
     }
@@ -755,8 +934,11 @@ export default function Applicants({
       setApplicants((prev) => prev.filter((a) => a.id !== application.id));
       await onRefresh();
       window.dispatchEvent(new CustomEvent(NOTIFICATIONS_REFRESH_EVENT));
+      toast.success("Application withdrawn");
     } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : "Remove failed");
+      const msg = e instanceof Error ? e.message : "Remove failed";
+      setDeleteError(msg);
+      toast.error(msg);
     } finally {
       setDeleteLoadingId("");
     }
@@ -777,8 +959,26 @@ export default function Applicants({
     return matchQ && matchJob && matchStage;
   });
 
+  // Guard against duplicate application rows (React key collisions).
+  const visibleApplicants = useMemo(() => {
+    const seen = new Set<string>();
+    const out: typeof filteredApplicants = [];
+    for (const a of filteredApplicants) {
+      const id = typeof a?.id === "string" ? a.id : "";
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(a);
+    }
+    return out;
+  }, [filteredApplicants]);
+
+  const bulkJobTitle = useMemo(
+    () => jobs.find((j) => j.id === bulkJobId)?.title?.trim() || "",
+    [jobs, bulkJobId],
+  );
+
   useEffect(() => {
-    if (!deepLinkTarget || filteredApplicants.length === 0) return;
+    if (!deepLinkTarget || visibleApplicants.length === 0) return;
     const selector = applicationQ
       ? `[data-application-id="${applicationQ.replace(/"/g, '\\"')}"]`
       : `[data-candidate-id="${candidateQ.replace(/"/g, '\\"')}"]`;
@@ -792,7 +992,7 @@ export default function Applicants({
     deepLinkTarget,
     applicationQ,
     candidateQ,
-    filteredApplicants,
+    visibleApplicants,
     applicants,
     drillDownRows,
   ]);
@@ -911,19 +1111,89 @@ export default function Applicants({
 
       {/* Applicants List */}
       <div className="grid gap-2">
+        {bulkParseSession && bulkParseProgress ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
+            <div className="min-w-0 flex flex-1 flex-col gap-1.5">
+              <p className="text-sm font-medium">
+                Parsing resumes
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  {bulkParseProgress.completed + bulkParseProgress.failed}/
+                  {bulkParseProgress.total} done
+                  {bulkParseProgress.left > 0
+                    ? ` · ${bulkParseProgress.left} left`
+                    : ""}
+                  {bulkParseProgress.failed > 0
+                    ? ` · ${bulkParseProgress.failed} failed`
+                    : ""}
+                </span>
+              </p>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full bg-primary transition-all duration-300"
+                  style={{
+                    width: `${
+                      bulkParseProgress.total === 0
+                        ? 0
+                        : Math.round(
+                            ((bulkParseProgress.completed +
+                              bulkParseProgress.failed) /
+                              bulkParseProgress.total) *
+                              100,
+                          )
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+            {bulkParseProgress.left === 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => {
+                  setBulkParseSession(null);
+                  setBulkParseProgress(null);
+                }}
+              >
+                Dismiss
+              </Button>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <ArrowsClockwise className="size-3.5 animate-spin" />
+                Live
+              </span>
+            )}
+          </div>
+        ) : null}
+
         {drillDownLoading ? (
           <div className="text-center py-10 text-sm text-muted-foreground">
             Loading drilldown candidates...
           </div>
-        ) : filteredApplicants.length === 0 ? (
+        ) : visibleApplicants.length === 0 ? (
           <div className="text-center py-10 text-sm text-muted-foreground">
             No applicants matching criteria.
           </div>
         ) : (
-          filteredApplicants.map((a) => {
+          visibleApplicants.map((a) => {
             const isHighlighted =
               (applicationQ && a.id === applicationQ) ||
               (!applicationQ && candidateQ && a.candidateId === candidateQ);
+            const parseRow =
+              typeof a.candidateId === "string"
+                ? parseStatusByCandidate.get(a.candidateId)
+                : undefined;
+            const tracked =
+              typeof a.candidateId === "string" &&
+              Boolean(bulkParseSession?.candidateIds.includes(a.candidateId));
+            const parseBusy = tracked && (parseRow ? isParseBusy(parseRow.status) : true);
+            const parseFailed = tracked && parseRow?.status === "FAILED";
+            const parseDone =
+              tracked &&
+              parseRow != null &&
+              isParseTerminal(parseRow.status) &&
+              !parseFailed;
 
             return (
               <Card
@@ -944,6 +1214,32 @@ export default function Applicants({
                       <span className="text-xs text-muted-foreground truncate">
                         {a.email}
                       </span>
+                      {parseBusy ? (
+                        <Badge
+                          variant="secondary"
+                          className="normal-case tracking-normal"
+                        >
+                          <ArrowsClockwise className="size-3 animate-spin" />
+                          Parsing resume
+                        </Badge>
+                      ) : null}
+                      {parseDone ? (
+                        <Badge
+                          variant="outline"
+                          className="normal-case tracking-normal"
+                        >
+                          Parsed
+                        </Badge>
+                      ) : null}
+                      {parseFailed ? (
+                        <Badge
+                          variant="destructive"
+                          className="normal-case tracking-normal"
+                          title={parseRow?.error ?? undefined}
+                        >
+                          Parse failed
+                        </Badge>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-2.5 text-xs text-muted-foreground flex-wrap">
                       <StageBadge stage={a.stage} />
@@ -955,6 +1251,23 @@ export default function Applicants({
                   </div>
 
                   <div className="flex items-center gap-1.5 flex-wrap">
+                    {canReadResume(role) && parseRow?.resumeUrl ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          window.open(
+                            parseRow.resumeUrl!,
+                            "_blank",
+                            "noopener,noreferrer",
+                          )
+                        }
+                        className="h-8 text-xs"
+                      >
+                        <Eye className="size-3.5 mr-1" />
+                        Open
+                      </Button>
+                    ) : null}
                     {canReadResume(role) && (
                       <Button
                         variant="ghost"
@@ -1071,18 +1384,18 @@ export default function Applicants({
         />
       )}
 
-      {/* Bulk resume import */}
+      {/* Bulk resume import — upload only; parse progress lives on the list */}
       <Dialog open={bulkModalOpen} onOpenChange={setBulkModalOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-base">Bulk upload resumes</DialogTitle>
             <DialogDescription>
-              Upload up to {BULK_RESUME_MAX_FILES} PDF/DOC/DOCX files. Each resume is
-              stored, queued for worker parsing, and added to the job pipeline as Applied.
+              Upload up to {BULK_RESUME_MAX_FILES} PDF/DOC/DOCX files. After import,
+              each row shows live parse status on the applicants list.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-1">
+          <div className="flex flex-col gap-4 py-1">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="bulk-job">Position *</Label>
               <Select
@@ -1091,12 +1404,15 @@ export default function Applicants({
                 disabled={bulkLoading}
               >
                 <SelectTrigger id="bulk-job" className="w-full min-w-0">
-                  <SelectValue placeholder="Select position" />
+                  <SelectValue placeholder="Select position">
+                    {bulkJobTitle || undefined}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {jobs
                     .filter(
                       (j) =>
+                        j.id === bulkJobId ||
                         !j.status ||
                         String(j.status).toUpperCase() === "OPEN",
                     )
@@ -1123,7 +1439,8 @@ export default function Applicants({
               />
               {bulkFiles.length > 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  {bulkFiles.length} file{bulkFiles.length === 1 ? "" : "s"} selected
+                  {bulkFiles.length} file{bulkFiles.length === 1 ? "" : "s"}{" "}
+                  selected
                   {" · "}
                   {Math.round(
                     bulkFiles.reduce((sum, f) => sum + f.size, 0) / 1024,
@@ -1138,29 +1455,6 @@ export default function Applicants({
                 <AlertDescription className="text-xs">{bulkError}</AlertDescription>
               </Alert>
             ) : null}
-
-            {bulkResult ? (
-              <div className="space-y-2 rounded-lg border border-border p-3">
-                <p className="text-sm font-medium">
-                  {bulkResult.succeeded} imported · {bulkResult.failed} failed ·{" "}
-                  {bulkResult.applicationsCreated} applications ·{" "}
-                  {bulkResult.parseEnqueued} queued for parse
-                </p>
-                {bulkResult.results.some((r) => !r.success) ? (
-                  <ScrollArea className="max-h-40">
-                    <ul className="space-y-1 pr-2">
-                      {bulkResult.results
-                        .filter((r) => !r.success)
-                        .map((r) => (
-                          <li key={r.fileName} className="text-xs text-destructive">
-                            {r.fileName}: {r.error}
-                          </li>
-                        ))}
-                    </ul>
-                  </ScrollArea>
-                ) : null}
-              </div>
-            ) : null}
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0">
@@ -1171,26 +1465,24 @@ export default function Applicants({
               disabled={bulkLoading}
               onClick={() => setBulkModalOpen(false)}
             >
-              {bulkResult ? "Close" : "Cancel"}
+              Cancel
             </Button>
-            {!bulkResult ? (
-              <Button
-                type="button"
-                size="sm"
-                disabled={bulkLoading || bulkFiles.length === 0 || !bulkJobId}
-                onClick={() => void submitBulkUpload()}
-                className="gap-2"
-              >
-                {bulkLoading ? (
-                  <ArrowsClockwise className="size-4 animate-spin" />
-                ) : (
-                  <UploadSimple className="size-4" />
-                )}
-                {bulkLoading
-                  ? "Importing…"
-                  : `Import ${bulkFiles.length || ""} resume${bulkFiles.length === 1 ? "" : "s"}`}
-              </Button>
-            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              disabled={bulkLoading || bulkFiles.length === 0 || !bulkJobId}
+              onClick={() => void submitBulkUpload()}
+              className="gap-2"
+            >
+              {bulkLoading ? (
+                <ArrowsClockwise className="size-4 animate-spin" />
+              ) : (
+                <UploadSimple className="size-4" />
+              )}
+              {bulkLoading
+                ? "Importing…"
+                : `Import ${bulkFiles.length || ""} resume${bulkFiles.length === 1 ? "" : "s"}`}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

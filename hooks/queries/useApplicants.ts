@@ -18,6 +18,7 @@ import {
   updateLeadStatus,
   updateRequirementStatus,
 } from "@/lib/api/applicants";
+import { invalidateSidebarNav } from "@/hooks/queries/useSidebarNav";
 
 export const applicantKeys = {
   all: ["applicants"] as const,
@@ -83,6 +84,7 @@ export function useCreateApplication() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: applicantKeys.all });
+      void invalidateSidebarNav(queryClient);
     },
   });
 }
@@ -93,6 +95,7 @@ export function useDeleteApplication() {
     mutationFn: (applicationId: string) => deleteApplication(applicationId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: applicantKeys.all });
+      void invalidateSidebarNav(queryClient);
     },
   });
 }

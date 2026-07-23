@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import pdfParse from "pdf-parse";
 import mammoth from "mammoth";
 import WordExtractor from "word-extractor";
+import { readPdfFromBytes } from "@/src/lib/open-resume/parse-resume-from-pdf/read-pdf-node";
 import { RESUME_READ_URL_PREFIX } from "@/src/lib/resume-storage";
 import type { AllowedResumeExt } from "@/src/lib/resume-upload-validation";
 import { getResumeExtension } from "@/src/lib/resume-upload-validation";
@@ -24,6 +25,25 @@ export function getResumeStorageFileNameFromResumeUrl(resumeUrl: string): string
   }
 }
 
+/** pdfjs fallback when pdf-parse dies on damaged XRef / broken PDFs. */
+async function extractPdfTextViaPdfjs(
+  buffer: Buffer
+): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  try {
+    const items = await readPdfFromBytes(new Uint8Array(buffer));
+    const text = items
+      .map((item) => item.text)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!text) return { ok: false, error: "No text could be extracted from this PDF." };
+    return { ok: true, text };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
+}
+
 /**
  * Extracts plain text from a resume buffer (PDF, DOCX, or legacy DOC).
  */
@@ -33,9 +53,23 @@ export async function extractPlainTextFromResumeBuffer(
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   try {
     if (ext === ".pdf") {
-      const data = await pdfParse(buffer);
-      const text = typeof data.text === "string" ? data.text : "";
-      return { ok: true, text: text.trim() };
+      try {
+        const data = await pdfParse(buffer);
+        const text = typeof data.text === "string" ? data.text.trim() : "";
+        if (text) return { ok: true, text };
+      } catch (e) {
+        const primary = e instanceof Error ? e.message : String(e);
+        const fallback = await extractPdfTextViaPdfjs(buffer);
+        if (fallback.ok) return fallback;
+        return {
+          ok: false,
+          error: primary || fallback.error || "PDF text extraction failed",
+        };
+      }
+      // Empty pdf-parse output — try pdfjs (some damaged PDFs return blank text).
+      const fallback = await extractPdfTextViaPdfjs(buffer);
+      if (fallback.ok) return fallback;
+      return { ok: true, text: "" };
     }
     if (ext === ".docx") {
       const result = await mammoth.extractRawText({ buffer });

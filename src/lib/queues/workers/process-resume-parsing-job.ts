@@ -125,6 +125,7 @@ export async function processResumeParsingJob(job: Job<ResumeParsingJobPayload>)
   await markResumeParseJobProcessing(prisma, {
     jobId: parseJob.id,
     attemptCount: job.attemptsMade + 1,
+    candidateId: payload.candidateId,
   });
 
   const candidate = await prisma.candidate.findUnique({

@@ -27,6 +27,7 @@ import {
   FileText,
   CheckCircle,
   WarningCircle,
+  Eye,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 
@@ -148,6 +149,11 @@ export default function ResumeCandidateModal({
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleOpenResume() {
+    if (!resumeUrl) return;
+    window.open(resumeUrl, "_blank", "noopener,noreferrer");
   }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -362,6 +368,18 @@ export default function ResumeCandidateModal({
 
               {/* Actions toolbar */}
               <div className="flex flex-wrap gap-2 items-center">
+                {canRead && resumeUrl && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={handleOpenResume}
+                    className="h-8 text-xs font-semibold"
+                  >
+                    <Eye className="size-3.5 mr-1" />
+                    Open resume
+                  </Button>
+                )}
                 {canRead && resumeUrl && (
                   <Button
                     variant="outline"

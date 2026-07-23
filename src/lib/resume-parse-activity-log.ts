@@ -149,6 +149,10 @@ export async function completeResumeParseJobAndLog(
     resumeParseJobId: updated.id,
     fileHash: updated.fileHash,
   });
+  const { scheduleParseProgressForCandidate } = await import(
+    "@/src/lib/parse-progress-realtime"
+  );
+  scheduleParseProgressForCandidate(params.candidateId, terminalStatus);
 }
 
 /**
@@ -189,4 +193,8 @@ export async function failResumeParseJobAndLog(
     fileHash: updated.fileHash,
     error: params.error,
   });
+  const { scheduleParseProgressForCandidate } = await import(
+    "@/src/lib/parse-progress-realtime"
+  );
+  scheduleParseProgressForCandidate(params.candidateId, "FAILED", params.error);
 }

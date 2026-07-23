@@ -14,6 +14,7 @@ import {
   type JobImportResult,
   type JobParseResult,
 } from "@/lib/api/jobs";
+import { invalidateSidebarNav } from "@/hooks/queries/useSidebarNav";
 
 export const jobKeys = {
   all: ["jobs"] as const,
@@ -54,6 +55,7 @@ export function useCreateJob() {
     mutationFn: (payload: Record<string, unknown>) => createJob(payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: jobKeys.list() });
+      void invalidateSidebarNav(queryClient);
     },
   });
 }
@@ -65,6 +67,7 @@ export function useUpdateJob() {
       updateJob(jobId, payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: jobKeys.list() });
+      void invalidateSidebarNav(queryClient);
     },
   });
 }
@@ -75,6 +78,7 @@ export function useDeleteJob() {
     mutationFn: (jobId: string) => deleteJob(jobId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: jobKeys.list() });
+      void invalidateSidebarNav(queryClient);
     },
   });
 }
@@ -105,6 +109,7 @@ export function useImportJobs() {
     mutationFn: (file: File) => importJobsFromCsv(file),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: jobKeys.list() });
+      void invalidateSidebarNav(queryClient);
     },
   });
 }

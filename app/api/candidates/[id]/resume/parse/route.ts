@@ -84,6 +84,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     await markResumeParseJobProcessing(prisma, {
       jobId: result.job.id,
       attemptCount: 1,
+      candidateId: id,
     });
     const run = await executeResumeParseJob(
       prisma,

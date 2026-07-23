@@ -17,7 +17,6 @@ import {
   UserCircle,
   SlidersHorizontal,
   EnvelopeSimple,
-  SignOut,
   SignOutIcon,
 } from "@phosphor-icons/react";
 import {
@@ -34,6 +33,8 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { themeConfig } from "@/lib/theme";
+import { useSidebarNavCounts } from "@/hooks/queries/useSidebarNav";
+import type { DashboardSidebarNavCounts } from "@/lib/api/sidebar-nav";
 
 const NAV_ITEMS = [
   { id: "dashboard", href: "/dashboard", icon: SquaresFour, label: "Dashboard" },
@@ -49,15 +50,31 @@ const NAV_ITEMS = [
   { id: "profile", href: "/profile", icon: UserCircle, label: "Profile" },
 ];
 
+type AppSidebarProps = DashboardSidebarNavCounts & {
+  showEmailMonitoring?: boolean;
+  showCrm?: boolean;
+};
+
 export default function AppSidebar({
-  jobsCount = 0,
-  applicantsCount = 0,
-  hiredCount = 0,
-  activeCount = 0,
+  jobsCount: initialJobsCount = 0,
+  applicantsCount: initialApplicantsCount = 0,
+  hiredCount: initialHiredCount = 0,
+  activeCount: initialActiveCount = 0,
   showEmailMonitoring = false,
   showCrm = false,
-}) {
+}: AppSidebarProps) {
   const pathname = usePathname();
+  const { data: nav } = useSidebarNavCounts({
+    jobsCount: initialJobsCount,
+    applicantsCount: initialApplicantsCount,
+    hiredCount: initialHiredCount,
+    activeCount: initialActiveCount,
+  });
+
+  const jobsCount = nav?.jobsCount ?? initialJobsCount;
+  const applicantsCount = nav?.applicantsCount ?? initialApplicantsCount;
+  const hiredCount = nav?.hiredCount ?? initialHiredCount;
+  const activeCount = nav?.activeCount ?? initialActiveCount;
 
   const navItems = useMemo(() => {
     let items = NAV_ITEMS.filter((item) => !item.adminOnly || showCrm);
@@ -83,16 +100,18 @@ export default function AppSidebar({
 
   return (
     <Sidebar collapsible="icon">
-      {/* ── Brand header ─────────────────────────────────────────────── */}
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" render={<Link href="/dashboard" />}>
               <div className="flex h-7 items-center justify-center rounded-md bg-transparent">
-                <img src="/agile_turn_logo.png" alt="Agile Turn Logo" className="h-full w-auto object-contain dark:invert" />
+                <img
+                  src="/agile_turn_logo.png"
+                  alt="Agile Turn Logo"
+                  className="h-full w-auto object-contain dark:invert"
+                />
               </div>
               <div className="flex flex-col gap-0.5 leading-none group-data-[collapsible=icon]:hidden">
-                {/* <span className="text-sm font-semibold tracking-[-0.02em]">{themeConfig.brand.name}</span> */}
                 <span className="text-eyebrow normal-case">
                   {themeConfig.brand.tagline}
                 </span>
@@ -104,13 +123,13 @@ export default function AppSidebar({
 
       <SidebarSeparator />
 
-      {/* ── Main navigation ───────────────────────────────────────────── */}
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
               {navItems.map((item) => {
-                const active = pathname === item.href || pathname?.startsWith(item.href + "/");
+                const active =
+                  pathname === item.href || pathname?.startsWith(item.href + "/");
                 const Icon = item.icon;
                 return (
                   <SidebarMenuItem key={item.id}>
@@ -135,13 +154,15 @@ export default function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* ── Stats ─────────────────────────────────────────────────── */}
         <SidebarSeparator className="group-data-[collapsible=icon]:hidden" />
         <SidebarGroup className="group-data-[collapsible=icon]:hidden">
           <SidebarGroupContent>
             <div className="grid grid-cols-2 gap-1.5 px-2 py-1">
               {stats.map((s) => (
-                <div key={s.label} className="rounded-md border border-border bg-card px-2.5 py-2">
+                <div
+                  key={s.label}
+                  className="rounded-md border border-border bg-card px-2.5 py-2"
+                >
                   <p className="text-sm font-semibold tabular-nums">{s.value}</p>
                   <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
                     {s.label}
@@ -153,7 +174,6 @@ export default function AppSidebar({
         </SidebarGroup>
       </SidebarContent>
 
-      {/* ── Footer / sign out ─────────────────────────────────────────── */}
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>

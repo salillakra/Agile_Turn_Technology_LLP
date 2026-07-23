@@ -23,7 +23,7 @@ export async function markResumeParseJobQueued(
 
 export async function markResumeParseJobProcessing(
   db: Db,
-  params: { jobId: string; attemptCount?: number }
+  params: { jobId: string; attemptCount?: number; candidateId?: string }
 ): Promise<void> {
   await db.resumeParseJob.update({
     where: { id: params.jobId },
@@ -34,6 +34,12 @@ export async function markResumeParseJobProcessing(
       error: null,
     },
   });
+  if (params.candidateId) {
+    const { scheduleParseProgressForCandidate } = await import(
+      "@/src/lib/parse-progress-realtime"
+    );
+    scheduleParseProgressForCandidate(params.candidateId, QUEUE_JOB_STATUS.PROCESSING);
+  }
 }
 
 export async function markResumeParseJobCompleted(
