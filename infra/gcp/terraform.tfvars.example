@@ -3,7 +3,7 @@ region      = "asia-south1"
 zone        = "asia-south1-a"
 name_prefix = "ats"
 
-machine_type = "e2-standard-4"
+machine_type = "e2-custom-4-8192"
 disk_size_gb = 120
 
 # filled by apply script — do not commit

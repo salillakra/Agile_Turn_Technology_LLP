@@ -20,8 +20,8 @@ variable "name_prefix" {
 
 variable "machine_type" {
   type        = string
-  default     = "e2-standard-4" # 4 vCPU / 16GB — builds + Coolify + compose
-  description = "Coolify host: 4 vCPU / 16GB leaves headroom for Docker builds"
+  default     = "e2-custom-4-8192" # 4 vCPU / 8GB — Coolify + compose; 16GB was overkill
+  description = "Coolify host: 4 vCPU / 8GB (e2 custom shared CPU)"
 }
 
 variable "disk_size_gb" {
