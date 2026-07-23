@@ -19,23 +19,17 @@ function normalizeBaseUrl(raw: string): string {
 export function resolveAiServiceBaseUrl(options?: EmbeddingClientOptions): string {
   const explicit = options?.baseUrl?.trim();
   const fromEnv = process.env.AI_SERVICE_URL?.trim();
-  let base =
+  const base =
     explicit && explicit.length > 0
       ? explicit
       : fromEnv && fromEnv.length > 0
         ? fromEnv
         : DEFAULT_AI_SERVICE_URL;
 
-  base = normalizeBaseUrl(base);
-
-  // Host-run Next.js/workers cannot resolve the Docker Compose service hostname.
-  if (/^https?:\/\/ai-service(?::|\/|$)/i.test(base)) {
-    const portMatch = base.match(/:(\d+)/);
-    const port = portMatch?.[1] ?? "8000";
-    base = `http://127.0.0.1:${port}`;
-  }
-
-  return base;
+  // Keep compose hostname `http://ai-service:8000` as-is — Coolify/Docker
+  // workers must reach the sidecar by service DNS. Host-run processes should
+  // set AI_SERVICE_URL=http://127.0.0.1:8000 (see .env.example).
+  return normalizeBaseUrl(base);
 }
 
 function isFiniteNumberArray(value: unknown): value is number[] {
