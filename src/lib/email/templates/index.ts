@@ -79,7 +79,7 @@ export {
   baseEmailFooterText,
   type BaseEmailOptions,
 } from "@/src/lib/email/templates/base-template";
-export { getEmailBrand, type EmailBrand } from "@/src/lib/email/templates/brand";
+export { getEmailBrand, resolveEmailAppUrl, type EmailBrand } from "@/src/lib/email/templates/brand";
 export {
   emailButton,
   emailDetailTable,

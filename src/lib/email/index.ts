@@ -61,6 +61,7 @@ export {
   renderEmailTemplate,
   renderBaseEmail,
   getEmailBrand,
+  resolveEmailAppUrl,
   buildRenderedEmail,
   renderCandidateStageUpdateEmail,
   renderStageChangedEmail,

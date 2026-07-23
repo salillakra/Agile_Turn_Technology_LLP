@@ -4,6 +4,7 @@ import { enqueueEmailJob } from "@/src/lib/queues/email-queue";
 import { isRedisConfigured } from "@/src/lib/queues/redis";
 import { prisma } from "@/src/lib/prisma";
 import { consumeApiRateLimit, rateLimitedResponse, readRateLimitConfig } from "@/src/lib/api-rate-limit";
+import { resolveEmailAppUrl } from "@/src/lib/email/templates/brand";
 
 const RESET_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
@@ -64,7 +65,7 @@ export async function POST(request: Request) {
     });
 
     const base =
-      process.env.NEXTAUTH_URL?.replace(/\/$/, "") ||
+      resolveEmailAppUrl() ||
       (typeof request.headers.get === "function" ? new URL(request.url).origin : "");
     const resetUrl = `${base}/reset-password?token=${encodeURIComponent(token)}`;
 

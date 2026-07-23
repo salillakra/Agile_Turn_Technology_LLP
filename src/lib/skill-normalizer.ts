@@ -181,3 +181,32 @@ export function normalizeSkills(skills: readonly string[]): string[] {
 
   return result;
 }
+
+/** Aliases that are also common English / too short for free-text scans. */
+const AMBIGUOUS_TEXT_ALIASES = new Set(["go", "r", "js", "ts"]);
+
+/**
+ * Scan free text (JD / notes) for known skill aliases. Longer aliases win first.
+ * Skips ambiguous short tokens (e.g. "go" in "we can go up to").
+ */
+export function extractKnownSkillsFromText(text: string): string[] {
+  if (typeof text !== "string" || !text.trim()) return [];
+
+  const hay = text.toLowerCase();
+  const keys = Object.keys(SKILL_ALIASES).sort((a, b) => b.length - a.length);
+  const found: string[] = [];
+  const seen = new Set<string>();
+
+  for (const key of keys) {
+    if (AMBIGUOUS_TEXT_ALIASES.has(key)) continue;
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`(?<![a-z0-9+#])${escaped}(?![a-z0-9+#])`, "i");
+    if (!re.test(hay)) continue;
+    const canonical = SKILL_ALIASES[key];
+    if (seen.has(canonical)) continue;
+    seen.add(canonical);
+    found.push(canonical);
+  }
+
+  return found;
+}

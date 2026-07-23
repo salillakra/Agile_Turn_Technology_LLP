@@ -3,6 +3,7 @@ import { requireApiAuth } from "@/src/lib/api-auth";
 import { createJobFromBody } from "@/src/lib/job-create-from-body";
 import {
   JOB_CSV_TEMPLATE,
+  decodeJobCsvBytes,
   jobCsvRowToBody,
   parseJobCsv,
 } from "@/src/lib/job-csv-import";
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing CSV file (field: file)" }, { status: 400 });
   }
 
-  const content = await file.text();
+  const content = decodeJobCsvBytes(await file.arrayBuffer());
   const parsed = parseJobCsv(content);
   if (parsed.error) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
