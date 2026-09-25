@@ -480,6 +480,14 @@ model Candidate {
   expectedCTC           Decimal?               @map("expected_ctc") @db.Decimal(12, 2)
   resumeUrl             String?                @map("resume_url")
   resumeFileName        String?                @map("resume_file_name")
+  resumeObjectKey       String?                @map("resume_object_key")
+  resumeContentType     String?                @map("resume_content_type")
+  resumeSize            Int?                   @map("resume_size")
+  resumeChecksum        String?                @map("resume_checksum")
+  resumeUploadedAt      DateTime?              @map("resume_uploaded_at")
+  /// `s3` (R2 / AWS S3 / LocalStack) or `local`. Set at upload time from STORAGE_PROVIDER.
+  storageProvider       String?                @map("storage_provider")
+  deletedAt             DateTime?              @map("deleted_at")
   candidateSource       CandidateSource?       @map("candidate_source")
   rating                Int?
   /// Raw skill strings from resume parse or manual entry (display + audit). e.g. "React.js", "Node JS".
@@ -521,6 +529,7 @@ model Candidate {
   @@index([ownerId])
   @@index([createdById])
   @@index([updatedById])
+  @@index([deletedAt])
   @@map("candidates")
 }
 

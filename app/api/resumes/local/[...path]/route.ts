@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
-import { readFile, stat } from "node:fs/promises";
 import { apiError } from "@/src/lib/api-error-response";
 import { requireApiAuth } from "@/src/lib/api-auth";
 import { canReadResume } from "@/src/lib/rbac";
 import { mimeFromResumeFileName } from "@/src/lib/resume-mime";
-import { ensureResumeUploadDir, safeResumeFilePath } from "@/src/lib/resume-storage";
+import { getResumeFile } from "@/src/lib/resume-storage";
+import { isSafeStorageKey, toResumeObjectKey } from "@/src/lib/storage/object-keys";
 
 export const runtime = "nodejs";
 
 /**
  * GET /api/resumes/local/[...path]
- * Streams a file from `uploads/resumes` for authenticated dashboard users.
- * Path segments must not contain `..` or slashes (single-level names only for now).
+ * Streams a resume object from storage for authenticated dashboard users.
  *
  * **RBAC:** `canReadResume` — ADMIN, RECRUITER, and HIRING_MANAGER (read-only for HM).
  */
@@ -22,34 +21,36 @@ export async function GET(
   const auth = await requireApiAuth(canReadResume);
   if (auth instanceof NextResponse) return auth;
 
-  ensureResumeUploadDir();
-
   const { path: segments } = await context.params;
-  const fullPath = safeResumeFilePath(segments ?? []);
-  if (fullPath == null) {
+  if (!segments || segments.length === 0) {
     return apiError("INVALID_PATH", "Invalid or unsafe file path", 400);
   }
 
+  let decoded: string;
   try {
-    const st = await stat(fullPath);
-    if (!st.isFile()) {
-      return apiError("NOT_FOUND", "Not a file", 404);
-    }
-    const buf = await readFile(fullPath);
-    const name = segments[segments.length - 1] ?? "resume";
-    return new NextResponse(buf, {
-      status: 200,
-      headers: {
-        "Content-Type": mimeFromResumeFileName(name),
-        "Content-Disposition": `inline; filename="${encodeURIComponent(name)}"`,
-        "Cache-Control": "private, no-store",
-      },
-    });
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException)?.code;
-    if (code === "ENOENT") {
-      return apiError("NOT_FOUND", "File not found", 404);
-    }
-    throw e;
+    decoded = segments.map((s) => decodeURIComponent(s)).join("/");
+  } catch {
+    return apiError("INVALID_PATH", "Invalid or unsafe file path", 400);
   }
+  if (!isSafeStorageKey(decoded)) {
+    return apiError("INVALID_PATH", "Invalid or unsafe file path", 400);
+  }
+
+  const key = toResumeObjectKey(decoded);
+  if (!key) {
+    return apiError("INVALID_PATH", "Invalid or unsafe file path", 400);
+  }
+
+  const buf = await getResumeFile(key);
+  if (!buf) {
+    return apiError("NOT_FOUND", "File not found", 404);
+  }
+  return new NextResponse(new Uint8Array(buf), {
+    status: 200,
+    headers: {
+      "Content-Type": mimeFromResumeFileName(key),
+      "Content-Disposition": `inline; filename="${encodeURIComponent(key.split("/").pop() ?? "resume")}"`,
+      "Cache-Control": "private, no-store",
+    },
+  });
 }

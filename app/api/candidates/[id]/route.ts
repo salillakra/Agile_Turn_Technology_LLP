@@ -14,6 +14,8 @@ import { candidatePatchAffectsEmbedding } from "@/src/lib/candidate-semantic-tex
 import { enqueueCandidateEmbedding } from "@/src/lib/enqueue-entity-embedding";
 import { invalidateCandidateScoringCaches } from "@/src/lib/ai/candidate-scoring-cache";
 import { invalidateCandidateRecommendedCandidatesCaches } from "@/src/lib/job-recommended-candidates-cache";
+import { getResumeStorageFileNameFromResumeUrl, tryRemoveResumeObjectKey } from "@/src/lib/resume-storage";
+import { enqueueStorageCleanupJob } from "@/src/lib/queues/storage-cleanup-queue";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -210,6 +212,28 @@ export async function DELETE(_request: Request, context: RouteContext) {
     );
   }
 
-  await prisma.candidate.delete({ where: { id } });
+  const keys = [
+    candidate.resumeObjectKey,
+    candidate.resumeUrl
+      ? getResumeStorageFileNameFromResumeUrl(candidate.resumeUrl)
+      : null,
+  ].filter((k, i, arr): k is string => Boolean(k) && arr.indexOf(k) === i);
+
+  await prisma.candidate.update({
+    where: { id },
+    data: { deletedAt: new Date() },
+  });
+
+  if (keys.length > 0) {
+    try {
+      await enqueueStorageCleanupJob({ candidateId: id, keys });
+    } catch (e) {
+      console.error("[DELETE /api/candidates] storage cleanup enqueue failed:", e);
+      for (const key of keys) {
+        await tryRemoveResumeObjectKey(key);
+      }
+    }
+  }
+
   return new NextResponse(null, { status: 204 });
 }

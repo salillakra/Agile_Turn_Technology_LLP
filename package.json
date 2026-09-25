@@ -5,7 +5,7 @@
   "scripts": {
     "clean": "node scripts/clean-next.cjs",
     "dev": "node --max-old-space-size=6144 ./node_modules/next/dist/bin/next dev",
-    "dev:stack": "concurrently -k -n next,worker -c blue,yellow \"node --max-old-space-size=6144 ./node_modules/next/dist/bin/next dev\" \"node --env-file=.env ./node_modules/.bin/tsx workers/index.ts\"",
+    "dev:stack": "concurrently -k -n next,worker -c blue,yellow \"node --max-old-space-size=6144 ./node_modules/next/dist/bin/next dev\" \"node --env-file=.env --import tsx workers/index.ts\"",
     "dev:next": "node --max-old-space-size=6144 ./node_modules/next/dist/bin/next dev",
     "dev:turbo": "node --max-old-space-size=6144 ./node_modules/next/dist/bin/next dev --turbo",
     "dev:clean": "node scripts/clean-next.cjs && node --max-old-space-size=6144 ./node_modules/next/dist/bin/next dev",
@@ -17,13 +17,15 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "worker": "node --env-file=.env ./node_modules/.bin/tsx workers/index.ts",
-    "infra": "docker compose -f docker-compose.dev.yml up -d",
-    "infra:down": "docker compose -f docker-compose.dev.yml down",
-    "infra:logs": "docker compose -f docker-compose.dev.yml logs -f",
+    "worker": "node --env-file=.env --import tsx workers/index.ts",
+    "infra": "docker compose up -d --build",
+    "infra:down": "docker compose down",
+    "infra:logs": "docker compose logs -f",
     "start-dev": "bash start-dev.sh"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1119.0",
+    "@aws-sdk/s3-request-presigner": "^3.1119.0",
     "@base-ui/react": "^1.6.0",
     "@getbrevo/brevo": "^6.0.2",
     "@google/genai": "^2.10.0",

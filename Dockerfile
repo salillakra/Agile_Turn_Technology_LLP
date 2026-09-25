@@ -70,8 +70,7 @@ COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/package.json  ./package.json
 
 COPY docker/app-entrypoint.sh /usr/local/bin/app-entrypoint.sh
-RUN chmod +x /usr/local/bin/app-entrypoint.sh && \
-    mkdir -p uploads/resumes && chown -R nextjs:nodejs uploads
+RUN chmod +x /usr/local/bin/app-entrypoint.sh
 
 EXPOSE 3000
 ENV PORT=3000
@@ -121,7 +120,6 @@ ENV NODE_ENV=production \
     AI_SERVICE_PORT=8000 \
     AI_SERVICE_BIND=127.0.0.1 \
     AI_SERVICE_URL=http://127.0.0.1:8000 \
-    RESUME_FILES_BASE_PATH=/app/uploads/resumes \
     HF_HOME=/var/cache/aiservice/huggingface \
     TRANSFORMERS_CACHE=/var/cache/aiservice/huggingface \
     SENTENCE_TRANSFORMERS_HOME=/var/cache/aiservice/sentence-transformers \
@@ -142,7 +140,7 @@ COPY --from=builder /app/package.json         ./package.json
 
 COPY docker/render-entrypoint.sh /app/docker/render-entrypoint.sh
 RUN chmod +x /app/docker/render-entrypoint.sh && \
-    mkdir -p uploads/resumes /var/cache/aiservice
+    mkdir -p /var/cache/aiservice
 
 EXPOSE 3000
 

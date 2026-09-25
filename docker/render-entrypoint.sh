@@ -52,7 +52,7 @@ AI_PID=$!
 if [ "${START_WORKER}" = "true" ] || [ "${START_WORKER}" = "1" ]; then
   if [ -n "${REDIS_URL:-}" ] || [ -n "${REDIS_HOST:-}" ]; then
     echo "[render] Starting BullMQ worker..."
-    node ./node_modules/.bin/tsx workers/index.ts &
+    node --import tsx workers/index.ts &
     WORKER_PID=$!
   else
     echo "[render] REDIS_URL unset — skipping worker (queues disabled)."

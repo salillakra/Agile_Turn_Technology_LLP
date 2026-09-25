@@ -1,77 +1,121 @@
-import fs from "node:fs";
-import path from "node:path";
-
-/** Relative to `process.cwd()` (Next.js project root) when `RESUME_UPLOAD_DIR` is unset. */
-export const RESUME_UPLOAD_RELATIVE_SEGMENTS = ["uploads", "resumes"] as const;
-
-/**
- * Absolute directory for local resume files.
- * Override with `RESUME_UPLOAD_DIR` (absolute path, or path relative to `process.cwd()`).
- */
-export function getResumeUploadDir(): string {
-  const override = process.env.RESUME_UPLOAD_DIR?.trim();
-  if (override) {
-    return path.isAbsolute(override) ? override : path.join(process.cwd(), override);
-  }
-  return path.join(process.cwd(), ...RESUME_UPLOAD_RELATIVE_SEGMENTS);
-}
-
-/**
- * Ensures the resume upload directory exists. Safe to call on every server startup / before writes.
- */
-export function ensureResumeUploadDir(): void {
-  fs.mkdirSync(getResumeUploadDir(), { recursive: true });
-}
-
-/**
- * Returns true if `resolvedPath` is the upload root or a file inside it (prevents `..` traversal).
- */
-export function isPathInsideResumeDir(resolvedPath: string): boolean {
-  const root = path.resolve(getResumeUploadDir());
-  const target = path.resolve(resolvedPath);
-  if (target === root) return true;
-  const prefix = root.endsWith(path.sep) ? root : root + path.sep;
-  return target.startsWith(prefix);
-}
-
-/**
- * Joins path segments under the resume dir and returns an absolute path, or `null` if traversal is attempted.
- */
-export function safeResumeFilePath(segments: string[]): string | null {
-  if (!segments.length) return null;
-  if (segments.some((s) => s === ".." || s.includes("/") || s.includes("\\"))) {
-    return null;
-  }
-  const full = path.resolve(getResumeUploadDir(), ...segments);
-  return isPathInsideResumeDir(full) ? full : null;
-}
+import { getStorage, getStorageProviderName } from "@/src/lib/storage";
+import {
+  isSafeLegacyFileName,
+  isSafeObjectKey,
+  toResumeObjectKey,
+} from "@/src/lib/storage/object-keys";
+import { mimeFromResumeFileName } from "@/src/lib/resume-mime";
 
 /** Prefix used when storing `Candidate.resumeUrl` for files served by GET /api/resumes/local/[...path]. */
 export const RESUME_READ_URL_PREFIX = "/api/resumes/local/";
 
+/** @deprecated Use isSafeLegacyFileName / isSafeObjectKey. Kept for callers that still pass a single filename. */
+export function isSafeStorageFileName(fileName: string): boolean {
+  return isSafeLegacyFileName(fileName) || isSafeObjectKey(fileName);
+}
+
+export function resumeS3Key(fileName: string): string {
+  return toResumeObjectKey(fileName) ?? `resumes/${fileName}`;
+}
+
 /**
- * Best-effort delete of a previously stored resume file when `resumeUrl` points at local API storage.
- * Ignores failures (file already gone, external URL, etc.).
+ * Returns the storage key from a `resumeUrl` (`/api/resumes/local/<encoded>`).
+ * Legacy URLs were a single filename; those map to `resumes/{fileName}`.
+ */
+export function getResumeStorageFileNameFromResumeUrl(resumeUrl: string): string | null {
+  const trimmed = resumeUrl.trim();
+  if (!trimmed.startsWith(RESUME_READ_URL_PREFIX)) return null;
+  const rest = trimmed.slice(RESUME_READ_URL_PREFIX.length);
+  if (!rest) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+  if (!decoded) return null;
+  return toResumeObjectKey(decoded);
+}
+
+export function resumeReadUrl(objectKey: string): string {
+  return `${RESUME_READ_URL_PREFIX}${encodeURIComponent(objectKey)}`;
+}
+
+export function candidateResumeDbFields(params: {
+  objectKey: string;
+  originalFileName: string;
+  contentType: string;
+  size: number;
+  checksum: string | null;
+}): {
+  resumeUrl: string;
+  resumeFileName: string;
+  resumeObjectKey: string;
+  resumeContentType: string;
+  resumeSize: number;
+  resumeChecksum: string | null;
+  resumeUploadedAt: Date;
+  storageProvider: string;
+} {
+  return {
+    resumeUrl: resumeReadUrl(params.objectKey),
+    resumeFileName: params.originalFileName,
+    resumeObjectKey: params.objectKey,
+    resumeContentType: params.contentType,
+    resumeSize: params.size,
+    resumeChecksum: params.checksum,
+    resumeUploadedAt: new Date(),
+    storageProvider: getStorageProviderName(),
+  };
+}
+
+export async function putResumeFile(fileName: string, buffer: Buffer): Promise<void> {
+  const key = toResumeObjectKey(fileName);
+  if (!key) throw new Error("Invalid resume storage key");
+  await getStorage().put(key, buffer, mimeFromResumeFileName(fileName));
+}
+
+export async function getResumeFile(fileName: string): Promise<Buffer | null> {
+  const key = toResumeObjectKey(fileName);
+  if (!key) return null;
+  return getStorage().get(key);
+}
+
+export async function deleteResumeFile(fileName: string): Promise<void> {
+  const key = toResumeObjectKey(fileName);
+  if (!key) return;
+  await getStorage().delete(key);
+}
+
+export async function headResumeFile(
+  fileName: string
+): Promise<{ contentType: string | null; contentLength: number | null } | null> {
+  const key = toResumeObjectKey(fileName);
+  if (!key) return null;
+  return getStorage().head(key);
+}
+
+/**
+ * Best-effort delete of a previously stored resume object when `resumeUrl` points at API storage.
+ * Ignores failures (object already gone, external URL, etc.).
  */
 export async function tryRemovePreviousResumeFile(
   previousResumeUrl: string | null | undefined
 ): Promise<void> {
   if (previousResumeUrl == null || typeof previousResumeUrl !== "string") return;
-  if (!previousResumeUrl.startsWith(RESUME_READ_URL_PREFIX)) return;
-  const rest = previousResumeUrl.slice(RESUME_READ_URL_PREFIX.length).split("/")[0] ?? "";
-  if (!rest || rest.includes("..")) return;
-  let fileName: string;
+  const fileName = getResumeStorageFileNameFromResumeUrl(previousResumeUrl);
+  if (!fileName) return;
   try {
-    fileName = decodeURIComponent(rest);
+    await deleteResumeFile(fileName);
   } catch {
-    return;
+    // ignore
   }
-  if (fileName.includes("..") || fileName.includes("/") || fileName.includes("\\")) return;
-  const full = path.resolve(getResumeUploadDir(), fileName);
-  if (!isPathInsideResumeDir(full)) return;
+}
+
+export async function tryRemoveResumeObjectKey(objectKey: string | null | undefined): Promise<void> {
+  if (objectKey == null || typeof objectKey !== "string" || !toResumeObjectKey(objectKey)) return;
   try {
-    const fs = await import("node:fs/promises");
-    await fs.unlink(full);
+    await deleteResumeFile(objectKey);
   } catch {
     // ignore
   }

@@ -1,5 +1,3 @@
-import { writeFile } from "node:fs/promises";
-import path from "node:path";
 import { NextResponse } from "next/server";
 import { prisma } from "@/src/lib/prisma";
 import { apiError } from "@/src/lib/api-error-response";
@@ -10,14 +8,14 @@ import {
 } from "@/src/lib/activity-log-details";
 import type { CandidateSource } from "@prisma/client";
 import { Prisma } from "@prisma/client";
+import { createHash } from "node:crypto";
 import {
-  ensureResumeUploadDir,
-  getResumeUploadDir,
-  RESUME_READ_URL_PREFIX,
+  candidateResumeDbFields,
+  putResumeFile,
   tryRemovePreviousResumeFile,
 } from "@/src/lib/resume-storage";
+import { buildResumeObjectKey } from "@/src/lib/storage/object-keys";
 import {
-  buildStoredFileName,
   getMaxResumeBytes,
   RESUME_FILE_TOO_LARGE_MESSAGE,
   validateResumeFile,
@@ -152,7 +150,7 @@ async function parseRequest(request: Request): Promise<
  * Creates/reuses candidate by email and creates APPLIED application for an OPEN job.
  *
  * **Body:** `application/json` (same as before) **or** `multipart/form-data` with the same field names
- * plus optional `file` (resume PDF/DOC/DOCX). When `file` is present, it is stored locally and
+ * plus optional `file` (resume PDF/DOC/DOCX). When `file` is present, it is stored in S3 and
  * `Candidate.resumeUrl` / `resumeFileName` are set before the application is created.
  */
 export async function POST(request: Request) {
@@ -162,8 +160,11 @@ export async function POST(request: Request) {
   let { fields } = parsed;
   const { resumeFile } = parsed;
 
-  let resumeUrlFinal: string | null = fields.resumeUrl;
-  let resumeFileName: string | null = null;
+  let pendingResume: {
+    buffer: Buffer;
+    originalFileName: string;
+    ext: ".pdf" | ".doc" | ".docx";
+  } | null = null;
 
   if (resumeFile != null && resumeFile.size > 0) {
     const maxBytes = getMaxResumeBytes();
@@ -181,20 +182,8 @@ export async function POST(request: Request) {
     if (validated.ok === false) {
       return apiError(validated.code, validated.message, 400);
     }
-    ensureResumeUploadDir();
-    const storedName = buildStoredFileName(validated.ext);
-    const absolutePath = path.join(getResumeUploadDir(), storedName);
-    resumeUrlFinal = `${RESUME_READ_URL_PREFIX}${encodeURIComponent(storedName)}`;
-    resumeFileName = originalFileName;
-    try {
-      await writeFile(absolutePath, buffer);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Write failed";
-      return apiError("WRITE_FAILED", "Could not save resume file.", 500, { reason: msg });
-    }
+    pendingResume = { buffer, originalFileName, ext: validated.ext };
   }
-
-  fields = { ...fields, resumeUrl: resumeUrlFinal };
 
   const candidateName = fields.candidateName;
   const email = fields.email.toLowerCase();
@@ -236,7 +225,7 @@ export async function POST(request: Request) {
   const existingCandidate = await prisma.candidate.findFirst({
     where: { email, ownerId: job.ownerId },
     orderBy: { createdAt: "desc" },
-    select: { id: true, resumeUrl: true },
+    select: { id: true, resumeUrl: true, resumeObjectKey: true },
   });
 
   let candidateId: string;
@@ -244,17 +233,6 @@ export async function POST(request: Request) {
 
   if (existingCandidate) {
     candidateId = existingCandidate.id;
-    if (resumeUrlFinal) {
-      const previousResumeUrl = existingCandidate.resumeUrl;
-      await prisma.candidate.update({
-        where: { id: candidateId },
-        data: {
-          resumeUrl: resumeUrlFinal,
-          resumeFileName: resumeFileName ?? undefined,
-        },
-      });
-      await tryRemovePreviousResumeFile(previousResumeUrl);
-    }
   } else {
     candidateId = (
       await prisma.candidate.create({
@@ -270,8 +248,7 @@ export async function POST(request: Request) {
             : undefined,
           currentCompany: fields.currentCompany,
           currentDesignation: fields.currentDesignation,
-          resumeUrl: resumeUrlFinal,
-          resumeFileName: resumeFileName ?? undefined,
+          resumeUrl: fields.resumeUrl,
           candidateSource: fields.candidateSource,
           ownerId: job.ownerId,
           createdById: job.ownerId,
@@ -280,6 +257,36 @@ export async function POST(request: Request) {
       })
     ).id;
     isNewCandidate = true;
+  }
+
+  if (pendingResume) {
+    const objectKey = buildResumeObjectKey({ candidateId, ext: pendingResume.ext });
+    try {
+      await putResumeFile(objectKey, pendingResume.buffer);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Write failed";
+      return apiError("WRITE_FAILED", "Could not save resume file.", 500, { reason: msg });
+    }
+    const previousResumeUrl = existingCandidate?.resumeUrl ?? null;
+    const previousObjectKey = existingCandidate?.resumeObjectKey ?? null;
+    await prisma.candidate.update({
+      where: { id: candidateId },
+      data: candidateResumeDbFields({
+        objectKey,
+        originalFileName: pendingResume.originalFileName,
+        contentType:
+          pendingResume.ext === ".pdf"
+            ? "application/pdf"
+            : pendingResume.ext === ".docx"
+              ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              : "application/msword",
+        size: pendingResume.buffer.length,
+        checksum: createHash("sha256").update(pendingResume.buffer).digest("hex"),
+      }),
+    });
+    if (previousObjectKey) {
+      await tryRemovePreviousResumeFile(previousResumeUrl);
+    }
   }
 
   try {

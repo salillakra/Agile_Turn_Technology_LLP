@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { uploadCandidateResume } from "@/lib/api/direct-resume-upload";
 import RecommendedRolesPanel from "@/components/RecommendedRolesPanel";
 import { NOTIFICATIONS_REFRESH_EVENT } from "@/components/NotificationBell";
 import {
@@ -162,19 +163,7 @@ export default function ResumeCandidateModal({
     setErr(null);
     setBusy(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch(`/api/candidates/${candidateId}/resume`, {
-        method: "POST",
-        body: fd,
-        credentials: "same-origin",
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(
-          body?.message || body?.error || `Upload failed (${res.status})`,
-        );
-      }
+      const body = await uploadCandidateResume(candidateId, file);
       setCandidate(body);
       const pRes = await fetch(`/api/candidates/${candidateId}/parse-status`, {
         credentials: "same-origin",

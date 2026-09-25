@@ -1,9 +1,8 @@
-import { readFile, stat } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { requireApiAuth } from "@/src/lib/api-auth";
 import { apiError } from "@/src/lib/api-error-response";
 import { prisma } from "@/src/lib/prisma";
-import { ensureProfileMediaDir, safeProfileMediaPath } from "@/src/lib/profile-media-storage";
+import { getProfileMediaFile, isSafeProfileMediaFileName } from "@/src/lib/profile-media-storage";
 
 export const runtime = "nodejs";
 
@@ -36,11 +35,11 @@ export async function GET(
     }
   });
 
-  if (decoded.length !== 1) {
+  const fileName = decoded.join("/");
+  if (!fileName || !isSafeProfileMediaFileName(fileName)) {
     return apiError("INVALID_PATH", "Invalid path", 400);
   }
 
-  const fileName = decoded[0]!;
   const profile = await prisma.userProfile.findUnique({
     where: { userId },
     select: { avatarFileName: true },
@@ -50,31 +49,15 @@ export async function GET(
     return apiError("NOT_FOUND", "Not found", 404);
   }
 
-  const fullPath = safeProfileMediaPath([fileName]);
-  if (fullPath == null) {
-    return apiError("INVALID_PATH", "Invalid or unsafe file path", 400);
+  const buf = await getProfileMediaFile(fileName);
+  if (!buf) {
+    return apiError("NOT_FOUND", "Not found", 404);
   }
-
-  ensureProfileMediaDir();
-
-  try {
-    const st = await stat(fullPath);
-    if (!st.isFile()) {
-      return apiError("NOT_FOUND", "Not found", 404);
-    }
-    const buf = await readFile(fullPath);
-    return new NextResponse(new Uint8Array(buf), {
-      status: 200,
-      headers: {
-        "Content-Type": mimeForFileName(fileName),
-        "Cache-Control": "private, no-store",
-      },
-    });
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException)?.code;
-    if (code === "ENOENT") {
-      return apiError("NOT_FOUND", "Not found", 404);
-    }
-    throw e;
-  }
+  return new NextResponse(new Uint8Array(buf), {
+    status: 200,
+    headers: {
+      "Content-Type": mimeForFileName(fileName),
+      "Cache-Control": "private, no-store",
+    },
+  });
 }

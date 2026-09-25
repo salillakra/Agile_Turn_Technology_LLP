@@ -17,6 +17,7 @@ const nextConfig = {
     "bullmq",
     "ioredis",
     "@getbrevo/brevo",
+    "@aws-sdk/client-s3",
   ],
 };
 

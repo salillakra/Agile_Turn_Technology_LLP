@@ -29,9 +29,9 @@ export function buildCandidateVisibilityWhere(
   role: string | undefined,
   userId: string | undefined
 ): Prisma.CandidateWhereInput {
-  if (isAdmin(role)) return {};
+  if (isAdmin(role)) return { deletedAt: null };
   if (!userId) return NO_ACCESS;
-  return { ownerId: userId };
+  return { ownerId: userId, deletedAt: null };
 }
 
 /**

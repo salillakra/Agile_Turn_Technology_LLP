@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { T } from "@/lib/helpers";
+import { uploadCandidateResume } from "@/lib/api/direct-resume-upload";
 
 async function readJsonSafe(res) {
   return res.json().catch(() => ({}));
@@ -86,24 +87,7 @@ export default function ApplyFlow({ job }) {
       }
 
       setStatusMsg("Uploading resume…");
-      const fd = new FormData();
-      fd.set("file", resumeFile);
-      const uploadRes = await fetch(
-        `/api/candidates/${encodeURIComponent(candidateId)}/resume`,
-        {
-          method: "POST",
-          credentials: "same-origin",
-          body: fd,
-        },
-      );
-      const uploadBody = await readJsonSafe(uploadRes);
-      if (!uploadRes.ok) {
-        throw new Error(
-          uploadBody?.error ||
-            uploadBody?.message ||
-            `Resume upload failed (${uploadRes.status})`,
-        );
-      }
+      await uploadCandidateResume(candidateId, resumeFile);
 
       setStatusMsg("Creating application…");
       const applyRes = await fetch("/api/applications", {

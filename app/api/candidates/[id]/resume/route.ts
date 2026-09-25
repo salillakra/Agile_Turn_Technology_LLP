@@ -1,5 +1,4 @@
-import { readFile, stat, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { apiError } from "@/src/lib/api-error-response";
 import { requireApiAuth } from "@/src/lib/api-auth";
@@ -13,22 +12,26 @@ import {
   formatCandidateDetail,
 } from "@/src/lib/candidate-detail-response";
 import {
-  ensureResumeUploadDir,
-  getResumeUploadDir,
-  RESUME_READ_URL_PREFIX,
-  safeResumeFilePath,
+  candidateResumeDbFields,
+  deleteResumeFile,
+  getResumeFile,
+  getResumeStorageFileNameFromResumeUrl,
+  headResumeFile,
+  putResumeFile,
   tryRemovePreviousResumeFile,
+  tryRemoveResumeObjectKey,
 } from "@/src/lib/resume-storage";
 import { enqueueCandidateEmbedding } from "@/src/lib/enqueue-entity-embedding";
 import { enqueueResumeParseForCandidate } from "@/src/lib/enqueue-resume-parse";
 import { invalidateCandidateEmbedding } from "@/src/lib/candidate-embedding-sync";
 import {
-  buildStoredFileName,
   getMaxResumeBytes,
   RESUME_FILE_TOO_LARGE_MESSAGE,
   validateResumeFile,
+  validateResumeUploadMeta,
 } from "@/src/lib/resume-upload-validation";
 import { consumeApiRateLimit, rateLimitedResponse, readRateLimitConfig } from "@/src/lib/api-rate-limit";
+import { buildResumeObjectKey, resumeKeyBelongsToCandidate } from "@/src/lib/storage/object-keys";
 
 export const runtime = "nodejs";
 
@@ -38,11 +41,20 @@ function notFoundNoResume(): NextResponse {
   return apiError("NOT_FOUND", "No resume on file for this candidate", 404);
 }
 
+function resolveResumeKey(row: {
+  resumeObjectKey: string | null;
+  resumeUrl: string | null;
+}): string | null {
+  if (row.resumeObjectKey) return row.resumeObjectKey;
+  if (row.resumeUrl) return getResumeStorageFileNameFromResumeUrl(row.resumeUrl);
+  return null;
+}
+
 /**
  * GET /api/candidates/[id]/resume
  *
- * Downloads the candidate's resume (authenticated). Uses `resumeUrl` + on-disk file under
- * `uploads/resumes`. `Content-Disposition: attachment` triggers download in browsers.
+ * Downloads the candidate's resume (authenticated). Uses `resumeObjectKey` / `resumeUrl`.
+ * `Content-Disposition: attachment` triggers download in browsers.
  *
  * **RBAC:** `canReadResume` — ADMIN, RECRUITER, and HIRING_MANAGER (read-only for HM).
  */
@@ -62,86 +74,144 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
 
   const candidate = await prisma.candidate.findFirst({
     where: { id, ...buildCandidateVisibilityWhere(role, userId) },
-    select: { resumeUrl: true, resumeFileName: true },
+    select: { resumeUrl: true, resumeFileName: true, resumeObjectKey: true },
   });
 
   if (!candidate) {
     return apiError("NOT_FOUND", "Candidate not found", 404);
   }
 
-  const resumeUrl = candidate.resumeUrl?.trim();
-  if (!resumeUrl) {
+  const storageKey = resolveResumeKey(candidate);
+  if (!storageKey) {
     return notFoundNoResume();
   }
 
-  if (!resumeUrl.startsWith(RESUME_READ_URL_PREFIX)) {
+  const buf = await getResumeFile(storageKey);
+  if (!buf) {
     return notFoundNoResume();
-  }
-
-  const rest = resumeUrl.slice(RESUME_READ_URL_PREFIX.length).split("/")[0] ?? "";
-  if (!rest) {
-    return notFoundNoResume();
-  }
-
-  let storageFileName: string;
-  try {
-    storageFileName = decodeURIComponent(rest);
-  } catch {
-    return notFoundNoResume();
-  }
-
-  const fullPath = safeResumeFilePath([storageFileName]);
-  if (fullPath == null) {
-    return notFoundNoResume();
-  }
-
-  ensureResumeUploadDir();
-
-  let buf: Buffer;
-  try {
-    const st = await stat(fullPath);
-    if (!st.isFile()) {
-      return notFoundNoResume();
-    }
-    buf = await readFile(fullPath);
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException)?.code;
-    if (code === "ENOENT") {
-      return notFoundNoResume();
-    }
-    throw e;
   }
 
   const downloadName = sanitizeContentDispositionFilename(
-    candidate.resumeFileName?.trim() || storageFileName
+    candidate.resumeFileName?.trim() || storageKey.split("/").pop() || "resume"
   );
 
   return new NextResponse(new Uint8Array(buf), {
     status: 200,
     headers: {
-      "Content-Type": mimeFromResumeFileName(storageFileName),
+      "Content-Type": mimeFromResumeFileName(storageKey),
       "Content-Disposition": `attachment; filename="${downloadName}"`,
       "Cache-Control": "private, no-store",
     },
   });
 }
 
+async function attachResumeAndEnqueue(params: {
+  candidateId: string;
+  userId: string | undefined;
+  objectKey: string;
+  originalFileName: string;
+  contentType: string;
+  size: number;
+  checksum: string | null;
+  previousResumeUrl: string | null;
+  previousObjectKey: string | null;
+}): Promise<NextResponse> {
+  const resumeUrl = candidateResumeDbFields({
+    objectKey: params.objectKey,
+    originalFileName: params.originalFileName,
+    contentType: params.contentType,
+    size: params.size,
+    checksum: params.checksum,
+  }).resumeUrl;
+
+  let updated;
+  try {
+    updated = await prisma.candidate.update({
+      where: { id: params.candidateId },
+      data: candidateResumeDbFields({
+        objectKey: params.objectKey,
+        originalFileName: params.originalFileName,
+        contentType: params.contentType,
+        size: params.size,
+        checksum: params.checksum,
+      }),
+      include: candidateDetailInclude,
+    });
+  } catch (e) {
+    try {
+      await deleteResumeFile(params.objectKey);
+    } catch {
+      // ignore rollback failure
+    }
+    throw e;
+  }
+
+  if (params.previousObjectKey && params.previousObjectKey !== params.objectKey) {
+    await tryRemoveResumeObjectKey(params.previousObjectKey);
+  } else {
+    await tryRemovePreviousResumeFile(params.previousResumeUrl);
+  }
+
+  if (params.previousResumeUrl !== resumeUrl) {
+    try {
+      await invalidateCandidateEmbedding(params.candidateId);
+      void enqueueCandidateEmbedding(params.candidateId).catch((err) => {
+        console.error(
+          "[candidates/[id]/resume] embedding enqueue failed for %s:",
+          params.candidateId,
+          err
+        );
+      });
+    } catch (err) {
+      console.error(
+        "[candidates/[id]/resume] invalidate embedding failed for %s:",
+        params.candidateId,
+        err
+      );
+    }
+  }
+
+  const parseEnqueue = await enqueueResumeParseForCandidate({
+    candidateId: params.candidateId,
+    resumeUrl,
+    userId: params.userId ?? null,
+    forceNewJob: true,
+  });
+
+  const detail = formatCandidateDetail(updated);
+  return NextResponse.json(
+    {
+      ...detail,
+      resumeParse:
+        parseEnqueue.ok === true
+          ? {
+              enqueued: true,
+              idempotent: parseEnqueue.idempotent,
+              processing: parseEnqueue.processing,
+              bullmqJobId: parseEnqueue.bullmqJobId,
+              job: parseEnqueue.job,
+            }
+          : {
+              enqueued: false,
+              error: parseEnqueue.message,
+              code: parseEnqueue.code,
+            },
+    },
+    { status: 201 }
+  );
+}
+
 /**
  * POST /api/candidates/[id]/resume
  *
- * Multipart form-data with field `file` (PDF, DOC, or DOCX).
- * Saves under uploads/resumes, sets `resumeUrl` + `resumeFileName`, enqueues a background parse job,
- * and returns candidate detail immediately (parsing runs in the worker — poll `GET .../parse-status`).
+ * Multipart `file` (proxy through API) **or** JSON `{ objectKey, originalFileName, contentType, size }`
+ * after a presigned PUT to object storage.
  *
- * **Replacement:** If the candidate already had a locally stored resume, the old file is deleted **after**
- * the new file is written and the DB row is updated — so a failed write/update does not remove the prior file.
- *
- * **RBAC:** `canUploadResume` — ADMIN and RECRUITER only (upload/replace/delete previous file). HIRING_MANAGER → 403.
+ * **RBAC:** `canUploadResume` — ADMIN and RECRUITER only.
  */
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   const auth = await requireApiAuth(canUploadResume);
   if (auth instanceof NextResponse) return auth;
-  const role = auth.session.user?.role;
   const userId = typeof auth.session.user?.id === "string" ? auth.session.user.id : undefined;
 
   const cfg = readRateLimitConfig({
@@ -174,25 +244,70 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     return apiError("INVALID_ID", "Malformed candidate id", 400);
   }
 
-  // NOTE: For resume upload we allow ADMIN/RECRUITER (canUploadResume) to access candidate by id
-  // without assigned-job scope. Newly created candidates have no applications yet, so scope would hide them.
-  // GET /resume remains scoped via buildCandidateVisibilityWhere.
   const existing = await prisma.candidate.findUnique({
     where: { id },
-    select: { id: true, resumeUrl: true },
+    select: { id: true, resumeUrl: true, resumeObjectKey: true },
   });
   if (!existing) {
     return apiError("NOT_FOUND", "Candidate not found", 404);
   }
 
-  /** Prior `resumeUrl` from DB; used to delete old on-disk file only after successful replace. */
   const previousResumeUrl = existing.resumeUrl;
+  const previousObjectKey = existing.resumeObjectKey;
+  const contentTypeHeader = request.headers.get("content-type") ?? "";
 
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("multipart/form-data")) {
+  if (contentTypeHeader.toLowerCase().includes("application/json")) {
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (body == null) {
+      return apiError("BAD_REQUEST", "Expected JSON body.", 400);
+    }
+    const objectKey = typeof body.objectKey === "string" ? body.objectKey.trim() : "";
+    const originalFileName =
+      typeof body.originalFileName === "string" ? body.originalFileName : "upload";
+    const mimeType = typeof body.contentType === "string" ? body.contentType : "";
+    const size = typeof body.size === "number" ? body.size : Number(body.size);
+    const checksum =
+      typeof body.checksum === "string" && /^[a-f0-9]{64}$/i.test(body.checksum)
+        ? body.checksum.toLowerCase()
+        : null;
+
+    const meta = validateResumeUploadMeta({
+      originalName: originalFileName,
+      mimeType,
+      size: Number.isFinite(size) ? size : 0,
+    });
+    if (meta.ok === false) {
+      return apiError(meta.code, meta.message, 400);
+    }
+    if (!resumeKeyBelongsToCandidate(objectKey, id)) {
+      return apiError("INVALID_OBJECT_KEY", "objectKey does not belong to this candidate.", 400);
+    }
+
+    const head = await headResumeFile(objectKey);
+    if (!head) {
+      return apiError("NOT_FOUND", "Uploaded object was not found in storage.", 404);
+    }
+    if (head.contentLength != null && head.contentLength !== size) {
+      return apiError("SIZE_MISMATCH", "Uploaded object size does not match metadata.", 400);
+    }
+
+    return attachResumeAndEnqueue({
+      candidateId: id,
+      userId,
+      objectKey,
+      originalFileName,
+      contentType: mimeFromResumeFileName(objectKey),
+      size: head.contentLength ?? size,
+      checksum,
+      previousResumeUrl,
+      previousObjectKey,
+    });
+  }
+
+  if (!contentTypeHeader.toLowerCase().includes("multipart/form-data")) {
     return apiError(
       "INVALID_CONTENT_TYPE",
-      "Expected multipart/form-data with a file field named \"file\".",
+      "Expected multipart/form-data with a file field named \"file\", or JSON metadata after presign.",
       400
     );
   }
@@ -229,82 +344,27 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
     return apiError(validated.code, validated.message, 400);
   }
 
-  ensureResumeUploadDir();
-  const storedName = buildStoredFileName(validated.ext);
-  const absolutePath = path.join(getResumeUploadDir(), storedName);
-  const resumeUrl = `${RESUME_READ_URL_PREFIX}${encodeURIComponent(storedName)}`;
+  const objectKey = buildResumeObjectKey({ candidateId: id, ext: validated.ext });
 
   try {
-    await writeFile(absolutePath, buffer);
+    await putResumeFile(objectKey, buffer);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Write failed";
     if (process.env.NODE_ENV === "development") {
-      console.error("[candidates/[id]/resume] writeFile", e);
+      console.error("[candidates/[id]/resume] putResumeFile", e);
     }
-    return apiError("WRITE_FAILED", "Could not save file to disk.", 500, { reason: msg });
+    return apiError("WRITE_FAILED", "Could not save file to storage.", 500, { reason: msg });
   }
 
-  let updated;
-  try {
-    updated = await prisma.candidate.update({
-      where: { id },
-      data: {
-        resumeUrl,
-        resumeFileName: originalFileName,
-      },
-      include: candidateDetailInclude,
-    });
-  } catch (e) {
-    try {
-      const fs = await import("node:fs/promises");
-      await fs.unlink(absolutePath);
-    } catch {
-      // ignore rollback failure
-    }
-    throw e;
-  }
-
-  // Replace: remove previous local file only after DB points at the new object (avoids losing the old file on failed write/update).
-  await tryRemovePreviousResumeFile(previousResumeUrl);
-
-  if (previousResumeUrl !== resumeUrl) {
-    try {
-      await invalidateCandidateEmbedding(id);
-      void enqueueCandidateEmbedding(id).catch((e) => {
-        console.error("[candidates/[id]/resume] embedding enqueue failed for %s:", id, e);
-      });
-    } catch (e) {
-      console.error("[candidates/[id]/resume] invalidate embedding failed for %s:", id, e);
-    }
-  }
-
-  const parseEnqueue = await enqueueResumeParseForCandidate({
+  return attachResumeAndEnqueue({
     candidateId: id,
-    resumeUrl,
-    userId: userId ?? null,
-    forceNewJob: true,
+    userId,
+    objectKey,
+    originalFileName,
+    contentType: mimeFromResumeFileName(objectKey),
+    size: buffer.length,
+    checksum: createHash("sha256").update(buffer).digest("hex"),
+    previousResumeUrl,
+    previousObjectKey,
   });
-
-  const detail = formatCandidateDetail(updated);
-
-  return NextResponse.json(
-    {
-      ...detail,
-      resumeParse:
-        parseEnqueue.ok === true
-          ? {
-              enqueued: true,
-              idempotent: parseEnqueue.idempotent,
-              processing: parseEnqueue.processing,
-              bullmqJobId: parseEnqueue.bullmqJobId,
-              job: parseEnqueue.job,
-            }
-          : {
-              enqueued: false,
-              error: parseEnqueue.message,
-              code: parseEnqueue.code,
-            },
-    },
-    { status: 201 }
-  );
 }

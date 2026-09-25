@@ -1,4 +1,5 @@
 import apiClient from "@/lib/axios";
+import { uploadCandidateResume } from "@/lib/api/direct-resume-upload";
 
 export interface Application {
   id: string;
@@ -71,13 +72,7 @@ export async function deleteApplication(
 }
 
 export async function uploadResume(candidateId: string, file: File): Promise<void> {
-  const fd = new FormData();
-  fd.set("file", file);
-  await apiClient.post(
-    `/candidates/${encodeURIComponent(candidateId)}/resume`,
-    fd,
-    { headers: { "Content-Type": "multipart/form-data" } }
-  );
+  await uploadCandidateResume(candidateId, file);
 }
 
 export type BulkResumeFileResult = {

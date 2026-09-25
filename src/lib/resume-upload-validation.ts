@@ -101,6 +101,42 @@ export function validateResumeFile(params: {
 }
 
 /**
+ * Extension + MIME + size only (no magic bytes). Used for presigned uploads
+ * where the API never sees the file body.
+ */
+export function validateResumeUploadMeta(params: {
+  originalName: string;
+  mimeType: string;
+  size: number;
+}): { ok: true; ext: AllowedResumeExt } | { ok: false; code: string; message: string } {
+  const maxBytes = getMaxResumeBytes();
+  if (params.size <= 0) {
+    return { ok: false, code: "VALIDATION_ERROR", message: "File is empty." };
+  }
+  if (params.size > maxBytes) {
+    return { ok: false, code: "FILE_TOO_LARGE", message: RESUME_FILE_TOO_LARGE_MESSAGE };
+  }
+  const ext = getResumeExtension(params.originalName);
+  if (ext == null) {
+    return {
+      ok: false,
+      code: "INVALID_FILE_TYPE",
+      message: "Only PDF, DOC, and DOCX files are allowed (check file extension).",
+    };
+  }
+  const rule = ALLOWED[ext];
+  const mime = (params.mimeType ?? "").trim().toLowerCase();
+  if (!GENERIC_MIME.has(mime) && !rule.mime.includes(mime)) {
+    return {
+      ok: false,
+      code: "INVALID_MIME",
+      message: `MIME type does not match allowed type for ${ext}.`,
+    };
+  }
+  return { ok: true, ext };
+}
+
+/**
  * Stored file name only (single path segment): `{uuid}{ext}` — no user-controlled characters.
  */
 export function buildStoredFileName(ext: AllowedResumeExt): string {

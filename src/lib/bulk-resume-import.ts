@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto";
-import { writeFile } from "node:fs/promises";
-import path from "node:path";
 import type { Session } from "next-auth";
 import { batchCreateApplicationsForJob } from "@/src/lib/batch-applications";
 import { normalizeCandidateEmail } from "@/src/lib/candidate-identity";
@@ -8,13 +6,9 @@ import { enqueueResumeParseForCandidate } from "@/src/lib/enqueue-resume-parse";
 import { prisma } from "@/src/lib/prisma";
 import { extractPlainTextFromResumeBuffer } from "@/src/lib/resume-extract-text";
 import { ruleBasedParse } from "@/src/lib/resume-parse/rule-based-parse";
+import { candidateResumeDbFields, putResumeFile } from "@/src/lib/resume-storage";
+import { buildResumeObjectKey } from "@/src/lib/storage/object-keys";
 import {
-  ensureResumeUploadDir,
-  getResumeUploadDir,
-  RESUME_READ_URL_PREFIX,
-} from "@/src/lib/resume-storage";
-import {
-  buildStoredFileName,
   getMaxResumeBytes,
   RESUME_FILE_TOO_LARGE_MESSAGE,
   validateResumeFile,
@@ -141,37 +135,43 @@ async function storeResumeOnCandidate(params: {
   ext: AllowedResumeExt;
   actorUserId: string;
 }): Promise<{ resumeUrl: string; parseEnqueued: boolean; error?: string }> {
-  ensureResumeUploadDir();
-  const storedName = buildStoredFileName(params.ext);
-  const absolutePath = path.join(getResumeUploadDir(), storedName);
-  await writeFile(absolutePath, params.buffer);
-  const resumeUrl = `${RESUME_READ_URL_PREFIX}${encodeURIComponent(storedName)}`;
+  const objectKey = buildResumeObjectKey({ candidateId: params.candidateId, ext: params.ext });
+  await putResumeFile(objectKey, params.buffer);
+  const db = candidateResumeDbFields({
+    objectKey,
+    originalFileName: params.originalName,
+    contentType:
+      params.ext === ".pdf"
+        ? "application/pdf"
+        : params.ext === ".docx"
+          ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          : "application/msword",
+    size: params.buffer.length,
+    checksum: createHash("sha256").update(params.buffer).digest("hex"),
+  });
 
   await prisma.candidate.update({
     where: { id: params.candidateId },
-    data: {
-      resumeUrl,
-      resumeFileName: params.originalName,
-    },
+    data: db,
   });
 
   const enqueued = await enqueueResumeParseForCandidate({
     candidateId: params.candidateId,
-    resumeUrl,
+    resumeUrl: db.resumeUrl,
     userId: params.actorUserId,
     forceNewJob: true,
   });
 
   if (enqueued.ok === false) {
     return {
-      resumeUrl,
+      resumeUrl: db.resumeUrl,
       parseEnqueued: false,
       error: enqueued.message,
     };
   }
   const parseEnqueued =
     enqueued.processing === "queued" || enqueued.processing === "inline-fallback";
-  return { resumeUrl, parseEnqueued };
+  return { resumeUrl: db.resumeUrl, parseEnqueued };
 }
 
 /**

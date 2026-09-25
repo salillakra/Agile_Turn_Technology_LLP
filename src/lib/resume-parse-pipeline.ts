@@ -16,7 +16,6 @@ import { isResumeParseResult } from "@/src/lib/resume-parse-result";
 import { RESUME_PARSE_LIMITS } from "@/src/lib/resume-parse-limits";
 import { truncateSummaryWithFullStop } from "@/src/lib/text-terminal-punctuation";
 import type { StructuredResumeParse } from "@/src/lib/structured-resume-parse";
-import { resolveLocalResumeFilePath, resolveLocalResumePdfPath } from "@/src/lib/resume-local-path";
 import { enqueueCandidateEmbeddingAfterParse } from "@/src/lib/resume-parse-embedding";
 
 export type ResumeParsePipelineInput = {
@@ -89,15 +88,12 @@ export async function runResumeParsePipeline(
   input: ResumeParsePipelineInput
 ): Promise<ResumeParsePipelineOutput> {
   const fallbackName = input.candidateName.trim() || "Unknown";
-  const pdfPath =
-    input.pdfPath ??
-    resolveLocalResumePdfPath(input.resumeUrl) ??
-    resolveLocalResumeFilePath(input.resumeUrl);
+  const pdfPath = input.pdfPath?.toLowerCase().endsWith(".pdf") ? input.pdfPath : null;
 
   const rule = await ruleBasedParse({
     plainText: input.plainText,
     fallbackName,
-    pdfPath: pdfPath?.toLowerCase().endsWith(".pdf") ? pdfPath : null,
+    pdfPath,
     pdfBuffer: input.pdfBuffer ?? null,
   });
 

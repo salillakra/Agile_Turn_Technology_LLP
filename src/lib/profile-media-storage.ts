@@ -1,46 +1,43 @@
-import fs from "node:fs";
-import path from "node:path";
-
-export const PROFILE_MEDIA_RELATIVE_SEGMENTS = ["uploads", "profile-media"] as const;
+import { getStorage } from "@/src/lib/storage";
+import { isSafeLegacyFileName, isSafeObjectKey, toProfileMediaObjectKey } from "@/src/lib/storage/object-keys";
 
 /** Public URL prefix for GET /api/profile/media/[...path] */
 export const PROFILE_MEDIA_READ_PREFIX = "/api/profile/media/";
 
-export function getProfileMediaDir(): string {
-  const override = process.env.PROFILE_MEDIA_UPLOAD_DIR?.trim();
-  if (override) {
-    return path.isAbsolute(override) ? override : path.join(process.cwd(), override);
-  }
-  return path.join(process.cwd(), ...PROFILE_MEDIA_RELATIVE_SEGMENTS);
+export function isSafeProfileMediaFileName(fileName: string): boolean {
+  return isSafeLegacyFileName(fileName) || isSafeObjectKey(fileName);
 }
 
-export function ensureProfileMediaDir(): void {
-  fs.mkdirSync(getProfileMediaDir(), { recursive: true });
+export function profileMediaS3Key(fileName: string): string {
+  return toProfileMediaObjectKey(fileName) ?? `profile-media/${fileName}`;
 }
 
-export function isPathInsideProfileMediaDir(resolvedPath: string): boolean {
-  const root = path.resolve(getProfileMediaDir());
-  const target = path.resolve(resolvedPath);
-  if (target === root) return true;
-  const prefix = root.endsWith(path.sep) ? root : root + path.sep;
-  return target.startsWith(prefix);
+function mimeForAvatarFileName(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  return "application/octet-stream";
 }
 
-export function safeProfileMediaPath(segments: string[]): string | null {
-  if (!segments.length) return null;
-  if (segments.some((s) => s === ".." || s.includes("/") || s.includes("\\"))) return null;
-  const full = path.resolve(getProfileMediaDir(), ...segments);
-  return isPathInsideProfileMediaDir(full) ? full : null;
+export async function putProfileMediaFile(fileName: string, buffer: Buffer): Promise<void> {
+  const key = toProfileMediaObjectKey(fileName);
+  if (!key) throw new Error("Invalid profile media storage key");
+  await getStorage().put(key, buffer, mimeForAvatarFileName(fileName));
+}
+
+export async function getProfileMediaFile(fileName: string): Promise<Buffer | null> {
+  const key = toProfileMediaObjectKey(fileName);
+  if (!key) return null;
+  return getStorage().get(key);
 }
 
 export async function tryRemoveProfileMediaFile(fileName: string | null | undefined): Promise<void> {
   if (fileName == null || typeof fileName !== "string" || !fileName.trim()) return;
-  if (fileName.includes("..") || fileName.includes("/") || fileName.includes("\\")) return;
-  const full = path.resolve(getProfileMediaDir(), fileName);
-  if (!isPathInsideProfileMediaDir(full)) return;
+  const key = toProfileMediaObjectKey(fileName);
+  if (!key) return;
   try {
-    const f = await import("node:fs/promises");
-    await f.unlink(full);
+    await getStorage().delete(key);
   } catch {
     // ignore
   }

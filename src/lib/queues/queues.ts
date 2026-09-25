@@ -28,6 +28,11 @@ import {
   closeAnalyticsQueue,
   getAnalyticsQueue,
 } from "@/src/lib/queues/analytics-queue";
+import {
+  closeStorageCleanupQueue,
+  getStorageCleanupQueue,
+  STORAGE_CLEANUP_QUEUE_NAME,
+} from "@/src/lib/queues/storage-cleanup-queue";
 
 /** Redis key namespace prefix for all ATS background jobs. */
 export const QUEUE_NAMES = {
@@ -39,6 +44,7 @@ export const QUEUE_NAMES = {
   EMBED: EMBEDDING_QUEUE_NAME,
   EMAIL: EMAIL_QUEUE_NAME,
   ANALYTICS: ANALYTICS_QUEUE_NAME,
+  STORAGE_CLEANUP: STORAGE_CLEANUP_QUEUE_NAME,
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -51,6 +57,7 @@ export const JOB_NAMES = {
   EMAIL_TRANSACTIONAL: "email.transactional",
   ANALYTICS_DASHBOARD: "analytics.dashboard",
   ANALYTICS_REPORTS: "analytics.reports",
+  STORAGE_CLEANUP: "storage.cleanup",
 } as const;
 
 function baseQueueOptions(): QueueOptions {
@@ -99,6 +106,7 @@ export function getAllQueues(): Queue[] {
     getEmbeddingQueue(),
     getTransactionalEmailQueue(),
     getAnalyticsQueue(),
+    getStorageCleanupQueue(),
   ];
 }
 
@@ -112,5 +120,6 @@ export async function closeAllQueues(): Promise<void> {
     closeEmbeddingQueue(),
     closeEmailQueue(),
     closeAnalyticsQueue(),
+    closeStorageCleanupQueue(),
   ]);
 }

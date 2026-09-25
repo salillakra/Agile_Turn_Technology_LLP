@@ -6,24 +6,10 @@ import pdfParse from "pdf-parse";
 import mammoth from "mammoth";
 import WordExtractor from "word-extractor";
 import { readPdfFromBytes } from "@/src/lib/open-resume/parse-resume-from-pdf/read-pdf-node";
-import { RESUME_READ_URL_PREFIX } from "@/src/lib/resume-storage";
 import type { AllowedResumeExt } from "@/src/lib/resume-upload-validation";
 import { getResumeExtension } from "@/src/lib/resume-upload-validation";
 
-/**
- * Returns the storage filename segment from a local `resumeUrl` (`/api/resumes/local/<encoded>`).
- */
-export function getResumeStorageFileNameFromResumeUrl(resumeUrl: string): string | null {
-  const trimmed = resumeUrl.trim();
-  if (!trimmed.startsWith(RESUME_READ_URL_PREFIX)) return null;
-  const rest = trimmed.slice(RESUME_READ_URL_PREFIX.length).split("/")[0] ?? "";
-  if (!rest) return null;
-  try {
-    return decodeURIComponent(rest);
-  } catch {
-    return null;
-  }
-}
+export { getResumeStorageFileNameFromResumeUrl } from "@/src/lib/resume-storage";
 
 /** pdfjs fallback when pdf-parse dies on damaged XRef / broken PDFs. */
 async function extractPdfTextViaPdfjs(

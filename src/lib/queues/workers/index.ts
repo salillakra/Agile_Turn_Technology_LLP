@@ -22,6 +22,7 @@ import {
 } from "@/src/lib/queues/queue-worker-rate-limit";
 import { validateEmailSecurityConfig } from "@/src/lib/email/email-security";
 import { createResumeParsingWorker } from "@/src/lib/queues/workers/resume-parsing-worker";
+import { createStorageCleanupWorker } from "@/src/lib/queues/workers/storage-cleanup-worker";
 
 export type QueueWorkersShutdown = () => Promise<void>;
 
@@ -32,10 +33,11 @@ export type StartedQueueWorkers = {
 };
 
 /**
- * Starts all ATS background workers (parse, embedding, email).
+ * Starts all ATS background workers (parse, embedding, email, storage cleanup).
  */
 export async function startQueueWorkers(): Promise<StartedQueueWorkers> {
   const redisConnections: QueueRedisConnection[] = [
+    createWorkerRedisConnectionForWorker(),
     createWorkerRedisConnectionForWorker(),
     createWorkerRedisConnectionForWorker(),
     createWorkerRedisConnectionForWorker(),
@@ -45,6 +47,7 @@ export async function startQueueWorkers(): Promise<StartedQueueWorkers> {
     createResumeParsingWorker(redisConnections[0]!),
     createEmbeddingWorker(redisConnections[1]!),
     createEmailWorker(redisConnections[2]!),
+    createStorageCleanupWorker(redisConnections[3]!),
   ];
 
   console.info(
@@ -66,9 +69,11 @@ export async function startQueueWorkers(): Promise<StartedQueueWorkers> {
 export { createResumeParsingWorker, resumeParsingWorker } from "@/src/lib/queues/workers/resume-parsing-worker";
 export { createEmbeddingWorker, embeddingWorker } from "@/src/lib/queues/workers/embedding-worker";
 export { createEmailWorker, emailWorker } from "@/src/lib/queues/workers/email-worker";
+export { createStorageCleanupWorker, storageCleanupWorker } from "@/src/lib/queues/workers/storage-cleanup-worker";
 export { processResumeParsingJob } from "@/src/lib/queues/workers/process-resume-parsing-job";
 export { processEmbeddingJob } from "@/src/lib/queues/workers/process-embedding-job";
 export { processEmailJob } from "@/src/lib/queues/workers/process-email-job";
+export { processStorageCleanupJob } from "@/src/lib/queues/workers/process-storage-cleanup-job";
 export {
   extractEmailJobPayload,
   isEmailAlreadyDelivered,

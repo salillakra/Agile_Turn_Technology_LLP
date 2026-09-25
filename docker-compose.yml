@@ -44,14 +44,12 @@ services:
       PORT: 8000
       LOG_LEVEL: info
       EMBEDDING_MODEL_NAME: ${AI_EMBEDDING_MODEL:-all-MiniLM-L6-v2}
-      RESUME_FILES_BASE_PATH: /app/uploads/resumes
       RESUME_NLP_ENABLED: ${AI_RESUME_PARSE_ENABLED:-true}
       SPACY_MODEL_NAME: en_core_web_sm
       HF_HOME: /var/cache/aiservice/huggingface
       TRANSFORMERS_CACHE: /var/cache/aiservice/huggingface
       SENTENCE_TRANSFORMERS_HOME: /var/cache/aiservice/sentence-transformers
     volumes:
-      - ./uploads:/app/uploads:ro
       - ai_model_cache:/var/cache/aiservice
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -71,15 +69,17 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-atsuser}:${POSTGRES_PASSWORD:-atspassword}@postgres:5432/${POSTGRES_DB:-atsdb}?sslmode=disable
+      DATABASE_URL: ${DATABASE_URL:-postgresql://atsuser:atspassword@postgres:5432/atsdb?sslmode=disable}
       REDIS_URL: redis://redis:6379
       AI_SERVICE_URL: http://ai-service:8000
       NODE_ENV: production
-    # Coolify proxy routes here; no host bind (avoids "port is already allocated")
-    expose:
-      - "3000"
+      STORAGE_PROVIDER: local
+      STORAGE_LOCAL_DIR: /app/uploads
+      AWS_ENDPOINT_URL: ""
+    ports:
+      - "${APP_PORT:-3000}:3000"
     volumes:
-      - ./uploads:/app/uploads
+      - uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -103,16 +103,19 @@ services:
       target: runner
     restart: unless-stopped
     # Skip migrate entrypoint — app already applies schema on boot
-    entrypoint: ["su-exec", "nextjs", "node", "--max-old-space-size=4096", "./node_modules/.bin/tsx", "workers/index.ts"]
+    entrypoint: ["su-exec", "nextjs", "node", "--max-old-space-size=4096", "--import", "tsx", "workers/index.ts"]
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-atsuser}:${POSTGRES_PASSWORD:-atspassword}@postgres:5432/${POSTGRES_DB:-atsdb}?sslmode=disable
+      DATABASE_URL: ${DATABASE_URL:-postgresql://atsuser:atspassword@postgres:5432/atsdb?sslmode=disable}
       REDIS_URL: redis://redis:6379
       AI_SERVICE_URL: http://ai-service:8000
       NODE_ENV: production
+      STORAGE_PROVIDER: local
+      STORAGE_LOCAL_DIR: /app/uploads
+      AWS_ENDPOINT_URL: ""
     volumes:
-      - ./uploads:/app/uploads
+      - uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -132,3 +135,4 @@ volumes:
   postgres_data:
   redis_data:
   ai_model_cache:
+  uploads:

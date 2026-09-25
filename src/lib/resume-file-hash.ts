@@ -1,13 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import {
-  ensureResumeUploadDir,
-  RESUME_READ_URL_PREFIX,
-  safeResumeFilePath,
-} from "@/src/lib/resume-storage";
+import { getResumeFile, getResumeStorageFileNameFromResumeUrl } from "@/src/lib/resume-storage";
 
 /**
- * SHA-256 (hex) of the on-disk resume bytes referenced by `resumeUrl` (local API storage only).
+ * SHA-256 (hex) of the stored resume bytes referenced by `resumeUrl` (S3 API storage only).
  * Used for idempotency / change detection on `ResumeParseJob.fileHash`.
  */
 export async function computeResumeSha256HexFromResumeUrl(
@@ -15,45 +10,13 @@ export async function computeResumeSha256HexFromResumeUrl(
 ): Promise<
   { ok: true; hash: string } | { ok: false; reason: "INVALID_URL" | "FILE_NOT_FOUND" }
 > {
-  const trimmed = resumeUrl.trim();
-  if (!trimmed.startsWith(RESUME_READ_URL_PREFIX)) {
-    return { ok: false, reason: "INVALID_URL" };
-  }
-
-  const rest = trimmed.slice(RESUME_READ_URL_PREFIX.length).split("/")[0] ?? "";
-  if (!rest) {
-    return { ok: false, reason: "INVALID_URL" };
-  }
-
-  let storageFileName: string;
-  try {
-    storageFileName = decodeURIComponent(rest);
-  } catch {
-    return { ok: false, reason: "INVALID_URL" };
-  }
-
-  const fullPath = safeResumeFilePath([storageFileName]);
-  if (fullPath == null) {
-    return { ok: false, reason: "INVALID_URL" };
-  }
-
-  ensureResumeUploadDir();
-
-  try {
-    const buf = await readFile(fullPath);
-    const hash = createHash("sha256").update(buf).digest("hex");
-    return { ok: true, hash };
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException)?.code;
-    if (code === "ENOENT") {
-      return { ok: false, reason: "FILE_NOT_FOUND" };
-    }
-    throw e;
-  }
+  const bytes = await readResumeBytesFromResumeUrl(resumeUrl);
+  if (bytes.ok === false) return bytes;
+  return { ok: true, hash: createHash("sha256").update(bytes.buffer).digest("hex") };
 }
 
 /**
- * Reads raw bytes for the same local-storage `resumeUrl` used by hashing.
+ * Reads raw bytes for the same `resumeUrl` used by hashing.
  * Used by the parse worker to feed a parser.
  */
 export async function readResumeBytesFromResumeUrl(
@@ -61,38 +24,14 @@ export async function readResumeBytesFromResumeUrl(
 ): Promise<
   { ok: true; buffer: Buffer } | { ok: false; reason: "INVALID_URL" | "FILE_NOT_FOUND" }
 > {
-  const trimmed = resumeUrl.trim();
-  if (!trimmed.startsWith(RESUME_READ_URL_PREFIX)) {
+  const storageFileName = getResumeStorageFileNameFromResumeUrl(resumeUrl);
+  if (!storageFileName) {
     return { ok: false, reason: "INVALID_URL" };
   }
 
-  const rest = trimmed.slice(RESUME_READ_URL_PREFIX.length).split("/")[0] ?? "";
-  if (!rest) {
-    return { ok: false, reason: "INVALID_URL" };
+  const buffer = await getResumeFile(storageFileName);
+  if (!buffer) {
+    return { ok: false, reason: "FILE_NOT_FOUND" };
   }
-
-  let storageFileName: string;
-  try {
-    storageFileName = decodeURIComponent(rest);
-  } catch {
-    return { ok: false, reason: "INVALID_URL" };
-  }
-
-  const fullPath = safeResumeFilePath([storageFileName]);
-  if (fullPath == null) {
-    return { ok: false, reason: "INVALID_URL" };
-  }
-
-  ensureResumeUploadDir();
-
-  try {
-    const buffer = await readFile(fullPath);
-    return { ok: true, buffer };
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException)?.code;
-    if (code === "ENOENT") {
-      return { ok: false, reason: "FILE_NOT_FOUND" };
-    }
-    throw e;
-  }
+  return { ok: true, buffer };
 }

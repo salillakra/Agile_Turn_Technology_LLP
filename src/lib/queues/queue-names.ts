@@ -8,6 +8,7 @@ export const BULLMQ_QUEUE_NAMES = {
   EMBEDDING: "ats-embedding",
   EMAIL: "ats-email",
   ANALYTICS: "ats-analytics",
+  STORAGE_CLEANUP: "ats-storage-cleanup",
 } as const;
 
 export type BullMqQueueName =

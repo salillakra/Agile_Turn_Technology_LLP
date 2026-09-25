@@ -1,19 +1,14 @@
-import { writeFile } from "node:fs/promises";
-import path from "node:path";
 import { NextResponse } from "next/server";
 import { requireApiAuth } from "@/src/lib/api-auth";
 import { apiError } from "@/src/lib/api-error-response";
 import { prisma } from "@/src/lib/prisma";
+import { validateAvatarFile } from "@/src/lib/avatar-upload-validation";
 import {
-  buildAvatarStoredFileName,
-  validateAvatarFile,
-} from "@/src/lib/avatar-upload-validation";
-import {
-  ensureProfileMediaDir,
-  getProfileMediaDir,
   PROFILE_MEDIA_READ_PREFIX,
+  putProfileMediaFile,
   tryRemoveProfileMediaFile,
 } from "@/src/lib/profile-media-storage";
+import { buildAvatarObjectKey } from "@/src/lib/storage/object-keys";
 import { loadProfileForUser, profileWithCompleteness } from "@/src/lib/user-profile-api";
 
 export const runtime = "nodejs";
@@ -58,9 +53,7 @@ export async function POST(request: Request) {
     return apiError(validated.code, validated.message, 400);
   }
 
-  ensureProfileMediaDir();
-  const storedName = buildAvatarStoredFileName(validated.ext);
-  const absolutePath = path.join(getProfileMediaDir(), storedName);
+  const storedName = buildAvatarObjectKey(validated.ext);
   const publicPath = `${PROFILE_MEDIA_READ_PREFIX}${encodeURIComponent(storedName)}`;
 
   const prev = await prisma.userProfile.findUnique({
@@ -70,13 +63,13 @@ export async function POST(request: Request) {
   const previousAvatar = prev?.avatarFileName;
 
   try {
-    await writeFile(absolutePath, buffer);
+    await putProfileMediaFile(storedName, buffer);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Write failed";
     if (process.env.NODE_ENV === "development") {
-      console.error("[profile/upload-avatar] writeFile", e);
+      console.error("[profile/upload-avatar] putProfileMediaFile", e);
     }
-    return apiError("WRITE_FAILED", "Could not save image to disk.", 500, { reason: msg });
+    return apiError("WRITE_FAILED", "Could not save image to storage.", 500, { reason: msg });
   }
 
   try {
@@ -93,8 +86,7 @@ export async function POST(request: Request) {
     ]);
   } catch (e) {
     try {
-      const fs = await import("node:fs/promises");
-      await fs.unlink(absolutePath);
+      await tryRemoveProfileMediaFile(storedName);
     } catch {
       // ignore
     }

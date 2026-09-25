@@ -66,6 +66,7 @@ import { cn } from "@/lib/utils";
 import {
   bulkUploadResumesForJob,
 } from "@/lib/api/applicants";
+import { uploadCandidateResume } from "@/lib/api/direct-resume-upload";
 
 /** Must match `BULK_RESUME_MAX_FILES` in `src/lib/bulk-resume-import.ts`. */
 const BULK_RESUME_MAX_FILES = 100;
@@ -490,24 +491,7 @@ export default function Applicants({
 
   const uploadResumeForCandidate = async (candidateId: string) => {
     if (!resumeFile) return;
-    const fd = new FormData();
-    fd.set("file", resumeFile);
-    const uploadRes = await fetch(
-      `/api/candidates/${encodeURIComponent(candidateId)}/resume`,
-      {
-        method: "POST",
-        credentials: "same-origin",
-        body: fd,
-      },
-    );
-    const uploadBody = await uploadRes.json().catch(() => ({}));
-    if (!uploadRes.ok) {
-      throw new Error(
-        uploadBody?.message ||
-          uploadBody?.error ||
-          `Resume upload failed (${uploadRes.status})`,
-      );
-    }
+    await uploadCandidateResume(candidateId, resumeFile);
   };
 
   const computeMatchForNewCandidate = async (
@@ -522,24 +506,7 @@ export default function Applicants({
     if (!resumeFile)
       throw new Error("Please select a resume file before saving.");
 
-    const fd = new FormData();
-    fd.set("file", resumeFile);
-    const uploadRes = await fetch(
-      `/api/candidates/${encodeURIComponent(candidateId)}/resume`,
-      {
-        method: "POST",
-        credentials: "same-origin",
-        body: fd,
-      },
-    );
-    const uploadBody = await uploadRes.json().catch(() => ({}));
-    if (!uploadRes.ok) {
-      throw new Error(
-        uploadBody?.message ||
-          uploadBody?.error ||
-          `Resume upload failed (${uploadRes.status})`,
-      );
-    }
+    await uploadCandidateResume(candidateId, resumeFile);
 
     const parseRes = await fetch(
       `/api/candidates/${encodeURIComponent(candidateId)}/resume/parse`,

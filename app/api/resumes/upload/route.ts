@@ -1,17 +1,11 @@
-import { writeFile } from "node:fs/promises";
-import path from "node:path";
 import { NextResponse } from "next/server";
 import { apiError } from "@/src/lib/api-error-response";
 import { requireApiAuth } from "@/src/lib/api-auth";
 import { canUploadResume } from "@/src/lib/rbac";
 import { consumeApiRateLimit, rateLimitedResponse, readRateLimitConfig } from "@/src/lib/api-rate-limit";
+import { putResumeFile, resumeReadUrl } from "@/src/lib/resume-storage";
+import { buildResumeObjectKey } from "@/src/lib/storage/object-keys";
 import {
-  ensureResumeUploadDir,
-  getResumeUploadDir,
-  RESUME_READ_URL_PREFIX,
-} from "@/src/lib/resume-storage";
-import {
-  buildStoredFileName,
   getMaxResumeBytes,
   RESUME_FILE_TOO_LARGE_MESSAGE,
   validateResumeFile,
@@ -98,21 +92,19 @@ export async function POST(request: Request): Promise<NextResponse> {
     return apiError(validated.code, validated.message, 400);
   }
 
-  ensureResumeUploadDir();
-  const storedName = buildStoredFileName(validated.ext);
-  const absolutePath = path.join(getResumeUploadDir(), storedName);
+  const storedName = buildResumeObjectKey({ ext: validated.ext });
 
   try {
-    await writeFile(absolutePath, buffer);
+    await putResumeFile(storedName, buffer);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Write failed";
     if (process.env.NODE_ENV === "development") {
-      console.error("[resumes/upload] writeFile", e);
+      console.error("[resumes/upload] putResumeFile", e);
     }
-    return apiError("WRITE_FAILED", "Could not save file to disk.", 500, { reason: msg });
+    return apiError("WRITE_FAILED", "Could not save file to storage.", 500, { reason: msg });
   }
 
-  const readUrl = `${RESUME_READ_URL_PREFIX}${encodeURIComponent(storedName)}`;
+  const readUrl = resumeReadUrl(storedName);
 
   return NextResponse.json(
     {

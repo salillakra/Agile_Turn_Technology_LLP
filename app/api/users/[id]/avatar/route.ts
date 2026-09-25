@@ -1,10 +1,9 @@
-import { readFile, stat } from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { requireApiAuth } from "@/src/lib/api-auth";
 import { prisma } from "@/src/lib/prisma";
 import { apiError } from "@/src/lib/api-error-response";
 import { canViewUserProfile } from "@/src/lib/rbac";
-import { ensureProfileMediaDir, safeProfileMediaPath } from "@/src/lib/profile-media-storage";
+import { getProfileMediaFile, isSafeProfileMediaFileName } from "@/src/lib/profile-media-storage";
 
 export const runtime = "nodejs";
 
@@ -45,27 +44,16 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
 
   const fileName = target.profile?.avatarFileName ?? null;
   if (!fileName) return apiError("NOT_FOUND", "No avatar", 404);
+  if (!isSafeProfileMediaFileName(fileName)) return apiError("INVALID_PATH", "Invalid or unsafe file path", 400);
 
-  const fullPath = safeProfileMediaPath([fileName]);
-  if (fullPath == null) return apiError("INVALID_PATH", "Invalid or unsafe file path", 400);
-
-  ensureProfileMediaDir();
-
-  try {
-    const st = await stat(fullPath);
-    if (!st.isFile()) return apiError("NOT_FOUND", "Not found", 404);
-    const buf = await readFile(fullPath);
-    return new NextResponse(new Uint8Array(buf), {
-      status: 200,
-      headers: {
-        "Content-Type": mimeForFileName(fileName),
-        "Cache-Control": "private, no-store",
-      },
-    });
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException)?.code;
-    if (code === "ENOENT") return apiError("NOT_FOUND", "Not found", 404);
-    throw e;
-  }
+  const buf = await getProfileMediaFile(fileName);
+  if (!buf) return apiError("NOT_FOUND", "Not found", 404);
+  return new NextResponse(new Uint8Array(buf), {
+    status: 200,
+    headers: {
+      "Content-Type": mimeForFileName(fileName),
+      "Cache-Control": "private, no-store",
+    },
+  });
 }
 
