@@ -1,4 +1,3 @@
-
 services:
   # ── Infrastructure ───────────────────────────────────────────────────────────
 
@@ -13,18 +12,6 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-atsuser} -d ${POSTGRES_DB:-atsdb}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  ats-redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -70,7 +57,7 @@ services:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://atsuser:atspassword@postgres:5432/atsdb?sslmode=disable}
-      REDIS_URL: redis://ats-redis:6379
+      REDIS_URL: ${REDIS_URL:-redis://127.0.0.1:6379}
       AI_SERVICE_URL: http://ai-service:8000
       NODE_ENV: production
       STORAGE_PROVIDER: local
@@ -82,8 +69,6 @@ services:
       - uploads:/app/uploads
     depends_on:
       postgres:
-        condition: service_healthy
-      ats-redis:
         condition: service_healthy
       ai-service:
         condition: service_healthy
@@ -108,7 +93,7 @@ services:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://atsuser:atspassword@postgres:5432/atsdb?sslmode=disable}
-      REDIS_URL: redis://ats-redis:6379
+      REDIS_URL: ${REDIS_URL:-redis://127.0.0.1:6379}
       AI_SERVICE_URL: http://ai-service:8000
       NODE_ENV: production
       STORAGE_PROVIDER: local
@@ -118,8 +103,6 @@ services:
       - uploads:/app/uploads
     depends_on:
       postgres:
-        condition: service_healthy
-      ats-redis:
         condition: service_healthy
       app:
         condition: service_healthy
@@ -133,6 +116,5 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
   ai_model_cache:
   uploads:
