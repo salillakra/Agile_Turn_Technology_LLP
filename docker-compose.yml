@@ -17,7 +17,7 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
+  ats-redis:
     image: redis:7-alpine
     restart: unless-stopped
     command: redis-server --appendonly yes
@@ -70,7 +70,7 @@ services:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://atsuser:atspassword@postgres:5432/atsdb?sslmode=disable}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://ats-redis:6379
       AI_SERVICE_URL: http://ai-service:8000
       NODE_ENV: production
       STORAGE_PROVIDER: local
@@ -83,7 +83,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      ats-redis:
         condition: service_healthy
       ai-service:
         condition: service_healthy
@@ -108,7 +108,7 @@ services:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://atsuser:atspassword@postgres:5432/atsdb?sslmode=disable}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://ats-redis:6379
       AI_SERVICE_URL: http://ai-service:8000
       NODE_ENV: production
       STORAGE_PROVIDER: local
@@ -119,7 +119,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      ats-redis:
         condition: service_healthy
       app:
         condition: service_healthy
