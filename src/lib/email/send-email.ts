@@ -6,8 +6,10 @@ import {
 import { renderEmailTemplate } from "@/src/lib/email/templates";
 import { redactEmailSecretsInText } from "@/src/lib/email/email-security";
 import { resolveBrevoEnvConfig } from "@/src/lib/email/brevo-env";
+import { resolveSmtpEnvConfig } from "@/src/lib/email/smtp-env";
 import {
   getBrevoClient,
+  getNodemailerTransporter,
   isEmailSendingEnabled,
 } from "@/src/lib/email/transporter";
 import { BrevoError } from "@getbrevo/brevo";
@@ -52,51 +54,75 @@ function classifySendError(error: unknown): Error {
     }
   }
 
-  return transientWorkerError(`Brevo send failed: ${safeMessage}`, error);
+  return transientWorkerError(`Email send failed: ${safeMessage}`, error);
 }
 
 function assertSendingEnabled(): void {
   if (!isEmailSendingEnabled()) {
     throw permanentWorkerError(
-      "Email sending is disabled (set BREVO_API_KEY, BREVO_FROM or SMTP_FROM, then EMAIL_SEND_ENABLED=1)"
+      "Email sending is disabled (set SMTP_HOST/SMTP_FROM or BREVO_API_KEY, then EMAIL_SEND_ENABLED=1)"
     );
   }
 }
 
 /**
- * Central outbound send via Brevo transactional API. All pipeline mail goes through here.
+ * Central outbound send via Nodemailer SMTP or Brevo transactional API.
  */
 export async function sendEmail(params: SendEmailParams): Promise<SendEmailResult> {
   assertSendingEnabled();
 
-  const config = resolveBrevoEnvConfig();
-  if (!config) {
-    throw permanentWorkerError("Brevo configuration is incomplete");
+  // Primary Path: Nodemailer SMTP transport (supports Brevo SMTP relay, Resend SMTP, Amazon SES, etc.)
+  const smtpConfig = resolveSmtpEnvConfig();
+  if (smtpConfig) {
+    try {
+      const transporter = getNodemailerTransporter();
+      const info = await transporter.sendMail({
+        from: smtpConfig.from,
+        to: params.to.trim(),
+        subject: params.subject,
+        html: params.html,
+        text: params.text,
+      });
+
+      const messageId =
+        typeof info.messageId === "string" && info.messageId.length > 0
+          ? info.messageId
+          : "unknown";
+
+      return { messageId, accepted: [params.to.trim()] };
+    } catch (err) {
+      throw classifySendError(err);
+    }
   }
 
-  const brevo = getBrevoClient();
+  // Secondary Path: Brevo REST API v3 SDK (@getbrevo/brevo)
+  const brevoConfig = resolveBrevoEnvConfig();
+  if (brevoConfig) {
+    try {
+      const brevo = getBrevoClient();
+      const result = await brevo.transactionalEmails.sendTransacEmail({
+        subject: params.subject,
+        htmlContent: params.html,
+        textContent: params.text,
+        sender: {
+          email: brevoConfig.senderEmail,
+          ...(brevoConfig.senderName ? { name: brevoConfig.senderName } : {}),
+        },
+        to: [{ email: params.to.trim() }],
+      });
 
-  try {
-    const result = await brevo.transactionalEmails.sendTransacEmail({
-      subject: params.subject,
-      htmlContent: params.html,
-      textContent: params.text,
-      sender: {
-        email: config.senderEmail,
-        ...(config.senderName ? { name: config.senderName } : {}),
-      },
-      to: [{ email: params.to.trim() }],
-    });
+      const messageId =
+        typeof result.messageId === "string" && result.messageId.length > 0
+          ? result.messageId
+          : "unknown";
 
-    const messageId =
-      typeof result.messageId === "string" && result.messageId.length > 0
-        ? result.messageId
-        : "unknown";
-
-    return { messageId, accepted: [params.to.trim()] };
-  } catch (err) {
-    throw classifySendError(err);
+      return { messageId, accepted: [params.to.trim()] };
+    } catch (err) {
+      throw classifySendError(err);
+    }
   }
+
+  throw permanentWorkerError("No valid email transport configuration found.");
 }
 
 /**
@@ -120,7 +146,7 @@ export async function sendTransactionalEmail(
   });
 }
 
-/** Worker no-op when Brevo is disabled (dev). */
+/** Worker no-op when email sending is disabled (dev). */
 export function shouldSkipEmailSend(): boolean {
   return !isEmailSendingEnabled();
 }
